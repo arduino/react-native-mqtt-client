@@ -4,8 +4,8 @@ import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter
 import javax.net.ssl.SSLSocketFactory
-import org.eclipse.paho.android.service.MqttAndroidClient
-import org.eclipse.paho.android.service.MqttTraceHandler
+import info.mqtt.android.service.MqttAndroidClient
+import info.mqtt.android.service.MqttTraceHandler
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
 import org.eclipse.paho.client.mqttv3.IMqttToken
@@ -324,20 +324,19 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             })
             client.setTraceEnabled(true)
             client.setTraceCallback(object: MqttTraceHandler {
-                override fun traceDebug(source: String, message: String) {
-                    Log.d("$NAME.trace", "$message ($source)")
+                override fun traceDebug(message: String?) {
+                    Log.d("$NAME.trace", "$message")
                 }
 
-                override fun traceError(source: String, message: String) {
-                    Log.e("$NAME.trace", "$message ($source)")
+                override fun traceError(message: String?) {
+                    Log.e("$NAME.trace", "$message")
                 }
 
                 override fun traceException(
-                        source: String,
-                        message: String,
-                        e: Exception)
+                        message: String?,
+                        e: Exception?)
                 {
-                    Log.e("$NAME.trace", "$message ($source)", e)
+                    Log.e("$NAME.trace", "$message", e)
                 }
             })
             val connectOptions = MqttConnectOptions()
