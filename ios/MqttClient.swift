@@ -414,6 +414,8 @@ extension MqttClient : CocoaMQTTDelegate {
 
     func mqtt(_ mqtt: CocoaMQTT, didReceive trust: SecTrust, completionHandler: @escaping (Bool) -> Void) {
         var result: SecTrustResultType = .invalid
+        let trustResultDetailsKey = "TrustResultDetails"
+        let validityPeriodMaximumsKey = "ValidityPeriodMaximums"
 
         let queryCaCertAttrs: [String: Any] = [
             kSecClass as String: kSecClassCertificate,
@@ -439,12 +441,25 @@ extension MqttClient : CocoaMQTTDelegate {
             completionHandler(false)
             return
         }
-
+        
         switch result {
         case .proceed:
             completionHandler(true)
         case .unspecified:
             completionHandler(true)
+        case .recoverableTrustFailure:
+            // Check the reason why the certificate is untrusted
+            let secTrustCopyResult = SecTrustCopyResult(trust)! as NSDictionary
+            // If TrustResultDetails is in our result we can find the possible issue
+            if let trustResultDetails = secTrustCopyResult[trustResultDetailsKey] as? NSArray {
+                // ValidityPeriodMaximums = 0 indicates that the period of validity of the certificate is too short
+                // The maximum validity is 397 days https://support.apple.com/en-us/HT211025
+                if trustResultDetails.value(forKey: validityPeriodMaximumsKey) is [NSObject] {
+                    completionHandler(true)
+                    return
+                }
+            }
+            completionHandler(false)
         default:
             completionHandler(false)
         }
