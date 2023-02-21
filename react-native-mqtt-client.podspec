@@ -18,5 +18,5 @@ Pod::Spec.new do |s|
 
 
   s.dependency "React"
-  s.dependency "CocoaMQTT"
+  s.dependency "CocoaMQTT", "~> 2.1.1"
 end

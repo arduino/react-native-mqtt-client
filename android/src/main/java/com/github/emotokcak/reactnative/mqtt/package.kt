@@ -118,3 +118,32 @@ fun ReadableMap.getOptionalMap(key: String): ReadableMap? {
     }
     return this.getMap(key)
 }
+
+/**
+* Obtains an optional Boolean value from a given `ReadableMap`.
+*
+* @param key
+*
+*   Key associated with the value to be obtained.
+*
+* @return
+*
+*   Boolean value associated with `key`.
+*   `false` if no value is associated with `key`.
+*
+* @throws IllegalArgumentException
+*
+*   If the value associated with `key` is not a Boolean.
+*/
+fun ReadableMap.getRequiredBoolean(key: String): Boolean {
+  if (!this.hasKey(key)) {
+    return false
+  }
+  if (this.getType(key) != ReadableType.Boolean) {
+    throw IllegalArgumentException(
+      "$key must be associated with a Boolean" +
+        " but ${this.getType(key)} was given"
+    )
+  }
+  return this.getBoolean(key)
+}

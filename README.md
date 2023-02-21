@@ -7,27 +7,29 @@ MQTT client for React Native application.
 - Secure MQTT connection over TLS 1.2.
 - Authentication of both of server and client by X.509 certificates.
 - Certificates and a private key stored in a device specific key store.
-    - [Android KeyStore](https://developer.android.com/training/articles/keystore#UsingAndroidKeyStore) on Android
-    - [Default keychain](https://developer.apple.com/documentation/security/keychain_services/keychains) on iOS
+  - [Android KeyStore](https://developer.android.com/training/articles/keystore#UsingAndroidKeyStore) on Android
+  - [Default keychain](https://developer.apple.com/documentation/security/keychain_services/keychains) on iOS
 
 ## Dependencies
 
 This library wraps the following libraries,
+
 - [Paho MQTT Client for Android variant maintained by hannesa2](https://github.com/hannesa2/paho.mqtt.android) (Android)
 
   This library is forked as [emoto-kc-ak/paho.mqtt.android](https://github.com/emoto-kc-ak/paho.mqtt.android) to make Maven artifacts.
+
 - [CocoaMQTT](https://github.com/emqx/CocoaMQTT) (iOS)
 
 ## Installation
 
 ```sh
-npm install --save git+https://github.com/emoto-kc-ak/react-native-mqtt-client.git#v0.1.1
+npm install --save git+https://github.com/emoto-kc-ak/react-native-mqtt-client.git#v0.1.4
 ```
 
 ## Usage
 
 ```js
-import MqttClient from "react-native-mqtt-client";
+import MqttClient from 'react-native-mqtt-client';
 ```
 
 ### Configuring an identity
@@ -43,13 +45,18 @@ MqttClient.setIdentity({
   keyPem: IOT_KEY, // PEM representation string of a private key
   keyStoreOptions, // options for a device specific key store. may be omitted
 })
-  .then(() => { /* handle success */ })
-  .catch(({code, message}) => { /* handle error */ });
+  .then(() => {
+    /* handle success */
+  })
+  .catch(({ code, message }) => {
+    /* handle error */
+  });
 ```
 
 `keyStoreOptions` is an optional object that may have the following fields,
-- `caCertAlias`: (string) Alias associated with a root certificate (Android only). See [`KeyStore.setCertificateEntry`](https://developer.android.com/reference/java/security/KeyStore#setCertificateEntry(java.lang.String,%20java.security.cert.Certificate))
-- `keyAlias`: (string) Alias associated with a private key (Android only). See [`KeyStore.setKeyEntry`](https://developer.android.com/reference/java/security/KeyStore#setKeyEntry(java.lang.String,%20java.security.Key,%20char[],%20java.security.cert.Certificate[]))
+
+- `caCertAlias`: (string) Alias associated with a root certificate (Android only). See [`KeyStore.setCertificateEntry`](<https://developer.android.com/reference/java/security/KeyStore#setCertificateEntry(java.lang.String,%20java.security.cert.Certificate)>)
+- `keyAlias`: (string) Alias associated with a private key (Android only). See [`KeyStore.setKeyEntry`](<https://developer.android.com/reference/java/security/KeyStore#setKeyEntry(java.lang.String,%20java.security.Key,%20char[],%20java.security.cert.Certificate[])>)
 - `caCertLabel`: (string) Label associated with a root certificate (iOS only). See [`kSecAttrLabel`](https://developer.apple.com/documentation/security/ksecattrlabel)
 - `certLabel`: (string) Label associated with a client certificate (iOS only). See [`kSecAttrLabel`](https://developer.apple.com/documentation/security/ksecattrlabel)
 - `keyApplicationTag`: (string) Tag associated with a private key (iOS only). See [`kSecAttrApplicationTag`](https://developer.apple.com/documentation/security/ksecattrapplicationtag)
@@ -64,8 +71,12 @@ MqttClient.connect({
   port: IOT_PORT, // (number) Port to connect.
   clientId: IOT_DEVICE_ID, // (string) Client ID of a device connecting.
 })
-  .then(() => { /* handle success */ })
-  .catch(({code, message}) => { /* handle error */ });
+  .then(() => {
+    /* handle success */
+  })
+  .catch(({ code, message }) => {
+    /* handle error */
+  });
 ```
 
 It attempts to connect to `ssl://$IOT_ENDPOINT:$IOT_PORT`.
@@ -76,11 +87,16 @@ It attempts to connect to `ssl://$IOT_ENDPOINT:$IOT_PORT`.
 
 ```js
 MqttClient.publish(topic, payload)
-  .then(() => { /* handle success */ })
-  .catch(({code, message}) => { /* handle error */ });
+  .then(() => {
+    /* handle success */
+  })
+  .catch(({ code, message }) => {
+    /* handle error */
+  });
 ```
 
 Where,
+
 - `topic`: (string) Topic where `payload` is to be published.
 - `payload`: (string) Payload to be published. Usually a stringified JSON object.
 
@@ -90,11 +106,16 @@ Where,
 
 ```js
 MqttClient.subscribe(topic)
-  .then(() => { /* handle success */ })
-  .catch(({code, message}) => { /* handle error */ });
+  .then(() => {
+    /* handle success */
+  })
+  .catch(({ code, message }) => {
+    /* handle error */
+  });
 ```
 
 Where,
+
 - `topic`: (string) Topic to subscribe.
 
 To handle messages in the subscribed topic, you have to handle a [`receive-message` event](#received-message).
@@ -104,7 +125,7 @@ To handle messages in the subscribed topic, you have to handle a [`receive-messa
 `MqttClient.disconnect` disconnects from an MQTT broker.
 
 ```js
-MqttClient.disconnect()
+MqttClient.disconnect();
 ```
 
 ### Loading an identity
@@ -113,8 +134,12 @@ An identity stored in a device specific key store by `MqttClient.setIdentity` ma
 
 ```js
 MqttClient.loadIdentity(keyStoreOptions)
-  .then(() => { /* handle success */ })
-  .catch(({code, message}) => { /* handle error */ });
+  .then(() => {
+    /* handle success */
+  })
+  .catch(({ code, message }) => {
+    /* handle error */
+  });
 ```
 
 Please refer to [Configuring an identity](#configuring-an-identity) for details of `keyStoreOptions`.
@@ -125,8 +150,12 @@ An identity stored in a device specific key store by `MqttClient.setIdentity` ma
 
 ```js
 MqttClient.resetIdentity(keyStoreOptions)
-  .then(() => { /* handle success */ })
-  .catch(({code, message}) => { /* handle error */ });
+  .then(() => {
+    /* handle success */
+  })
+  .catch(({ code, message }) => {
+    /* handle error */
+  });
 ```
 
 Please refer to [Configuring an identity](#configuring-an-identity) for details of `keyStoreOptions`.
@@ -137,11 +166,16 @@ Please refer to [Configuring an identity](#configuring-an-identity) for details 
 
 ```js
 MqttClient.isIdentityStored(keyStoreOptions)
-  .then((isStored) => { /* handle success */ })
-  .catch(({code, message}) => { /* handle error */ });
+  .then((isStored) => {
+    /* handle success */
+  })
+  .catch(({ code, message }) => {
+    /* handle error */
+  });
 ```
 
 Where,
+
 - `isStored`: (boolean) Whether an identity is stored in a device-specific key store.
 
 Please refer to [Configuring an identity](#configuring-an-identity) for details of `keyStoreOptions`.
@@ -155,7 +189,9 @@ Please refer to [Configuring an identity](#configuring-an-identity) for details 
 A `connected` event is notified when connection to an MQTT broker is established.
 
 ```js
-MqttClient.addListener('connected', () => { /* handle connection */ })
+MqttClient.addListener('connected', () => {
+  /* handle connection */
+});
 ```
 
 #### disconnected
@@ -163,7 +199,9 @@ MqttClient.addListener('connected', () => { /* handle connection */ })
 A `disconnected` event is notified when connection to an MQTT broker is disconnected.
 
 ```js
-MqttClient.addListener('disconnected', () => { /* handle disconnection */ })
+MqttClient.addListener('disconnected', () => {
+  /* handle disconnection */
+});
 ```
 
 #### received-message
@@ -171,10 +209,13 @@ MqttClient.addListener('disconnected', () => { /* handle disconnection */ })
 A `received-message` event is notified when a message is arrived from an MQTT broker.
 
 ```js
-MqttClient.addListener('received-message', ({topic, payload}) => { /* handle message */ });
+MqttClient.addListener('received-message', ({ topic, payload }) => {
+  /* handle message */
+});
 ```
 
 Where,
+
 - `topic`: (string) Topic where a message has been published.
 - `payload`: (string) Payload of a message. Usually a stringified JSON object.
 
@@ -183,7 +224,9 @@ Where,
 A `got-error` event is notified when an error has occurred.
 
 ```js
-MqttClient.addListener('got-error', (err) => { /* handle error */ })
+MqttClient.addListener('got-error', (err) => {
+  /* handle error */
+});
 ```
 
 ## iOS Tips
@@ -215,6 +258,7 @@ npm run prepare
 ```
 
 Artifacts will be updated in the following directories,
+
 - `lib/commonjs`
 - `lib/module`
 - `lib/typescript`
