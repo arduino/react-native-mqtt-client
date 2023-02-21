@@ -3,5 +3,5 @@ platform :ios, '11.0'
 target 'MqttClient' do
   use_frameworks!
 
-  pod 'CocoaMQTT'
+  pod 'CocoaMQTT', '2.1.1'
 end

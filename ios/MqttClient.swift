@@ -299,6 +299,7 @@ class MqttClient : RCTEventEmitter {
         let host: String = RCTConvert.nsString(params["host"])
         let port: Int = RCTConvert.nsInteger(params["port"])
         let clientId: String = RCTConvert.nsString(params["clientId"])
+        let reconnect: Bool = RCTConvert.bool(params["reconnect"])
         self.client = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port))
         self.client!.username = ""
         self.client!.password = ""
@@ -311,6 +312,7 @@ class MqttClient : RCTEventEmitter {
         self.client!.keepAlive = 60
         self.client!.delegate = self
         self.client!.logLevel = .debug
+        self.client!.autoReconnect = reconnect
         _ = self.client!.connect()
         resolve(nil)
     }
@@ -441,7 +443,7 @@ extension MqttClient : CocoaMQTTDelegate {
             completionHandler(false)
             return
         }
-        
+
         switch result {
         case .proceed:
             completionHandler(true)
