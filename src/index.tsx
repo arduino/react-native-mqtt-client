@@ -287,6 +287,7 @@ export type ConnectionParameters = {
   host: string;
   port: string;
   clientId: string;
+  reconnect: boolean;
 };
 
 const defaultInstance = new MqttClient();
