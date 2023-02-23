@@ -252,6 +252,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
      * - `clientId`: {`String`} Client ID of the device.
      * - `host`: {`String`} Host name of the MQTT broker.
      * - `port`: {`int`} Port of the MQTT broker.
+     * - `reconnect`: {`Boolean`} Reconnect if connection is lost.
      *
      * @param params
      *
@@ -304,7 +305,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                 override fun connectionLost(cause: Throwable?) {
                     Log.d(NAME, "connectionLost", cause)
                     this@RNMqttClient.notifyError("ERROR_CONNECTION", cause)
-                    this@RNMqttClient.notifyEvent("disconnected", null)
+                    if(!parsedParams.reconnect) {
+                      this@RNMqttClient.notifyEvent("disconnected", null)
+                    }
                 }
 
                 override fun deliveryComplete(token: IMqttDeliveryToken) {
@@ -340,8 +343,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                 }
             })
             val connectOptions = MqttConnectOptions()
-            connectOptions.setSocketFactory(socketFactory)
-            connectOptions.setCleanSession(true)
+            connectOptions.socketFactory = socketFactory
+            connectOptions.isCleanSession = true
+            connectOptions.isAutomaticReconnect = parsedParams.reconnect
             Log.d(NAME, "connecting to the broker")
             val token = client.connect(connectOptions)
             token.setActionCallback(object: IMqttActionListener {
@@ -549,7 +553,8 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     private class ConnectionParameters(
         val host: String,
         val port: Int,
-        val clientId: String
+        val clientId: String,
+        val reconnect: Boolean
     ) {
         companion object {
             // Parses a given object from JavaScript.
@@ -557,7 +562,8 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                 return ConnectionParameters(
                     host=params.getRequiredString("host"),
                     port=params.getRequiredInt("port"),
-                    clientId=params.getRequiredString("clientId")
+                    clientId=params.getRequiredString("clientId"),
+                    reconnect=params.getRequiredBoolean("reconnect")
                 )
             }
         }
