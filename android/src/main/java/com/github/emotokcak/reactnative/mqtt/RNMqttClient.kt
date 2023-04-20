@@ -65,6 +65,8 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             this.disconnect()
         } catch (e: MqttException) {
             Log.e(NAME, "failed to disconnect", e)
+        } catch (e: IllegalArgumentException) {
+          Log.e(NAME, "failed to disconnect", e)
         }
     }
 
@@ -157,6 +159,14 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             )
             promise.reject("INVALID_IDENTITY", e)
             return
+        } catch (e: IllegalArgumentException) {
+          Log.e(
+            NAME,
+            "failed to load an identity from the Android key store",
+            e
+          )
+          promise.reject("INVALID_IDENTITY", e)
+          return
         }
     }
 
@@ -370,6 +380,10 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             Log.e(NAME, "failed to connect", e)
             promise.reject("ERROR_CONNECTION", e)
             return
+        } catch (e: IllegalArgumentException) {
+          Log.e(NAME, "failed to connect", e)
+          promise.reject("ERROR_CONNECTION", e)
+          return
         }
     }
 
@@ -409,6 +423,10 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         } catch (e: MqttException) {
             Log.e(NAME, "failed to disconnect", e)
             return
+        } catch (e: IllegalArgumentException) {
+          // maybe Invalid ClientHandle
+          Log.e(NAME, "failed to disconnect", e)
+          return
         }
     }
 
