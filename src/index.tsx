@@ -1,4 +1,8 @@
-import { NativeEventEmitter, NativeModules } from 'react-native';
+import {
+  EmitterSubscription,
+  NativeEventEmitter,
+  NativeModules,
+} from 'react-native';
 
 const { MqttClient: MqttClientImpl } = NativeModules;
 
@@ -184,7 +188,7 @@ export class MqttClient {
    * @function addListener
    */
   addListener(eventName: string, listener: ListenerFunction) {
-    eventBridge.addListener(eventName, listener);
+    return eventBridge.addListener(eventName, listener);
   }
 
   /**
@@ -192,8 +196,8 @@ export class MqttClient {
    *
    * @function removeListener
    */
-  removeListener(eventName: string, listener: ListenerFunction) {
-    eventBridge.removeListener(eventName, listener);
+  removeListener(subscription: EmitterSubscription) {
+    subscription.remove();
   }
 }
 
