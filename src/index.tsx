@@ -289,7 +289,7 @@ export type KeyStoreOptions = {
  */
 export type ConnectionParameters = {
   host: string;
-  port: string;
+  port: number;
   clientId: string;
   reconnect: boolean;
 };
