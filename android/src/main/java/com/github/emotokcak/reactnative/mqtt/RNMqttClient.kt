@@ -3,16 +3,10 @@ package com.github.emotokcak.reactnative.mqtt
 import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter
-import javax.net.ssl.SSLSocketFactory
 import info.mqtt.android.service.MqttAndroidClient
 import info.mqtt.android.service.MqttTraceHandler
-import org.eclipse.paho.client.mqttv3.IMqttActionListener
-import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
-import org.eclipse.paho.client.mqttv3.IMqttToken
-import org.eclipse.paho.client.mqttv3.MqttCallbackExtended
-import org.eclipse.paho.client.mqttv3.MqttConnectOptions
-import org.eclipse.paho.client.mqttv3.MqttException
-import org.eclipse.paho.client.mqttv3.MqttMessage
+import org.eclipse.paho.client.mqttv3.*
+import javax.net.ssl.SSLSocketFactory
 
 /**
  * An MQTT client.
@@ -22,8 +16,7 @@ import org.eclipse.paho.client.mqttv3.MqttMessage
  * Powered by [Paho MQTT for Android](https://github.com/eclipse/paho.mqtt.android).
  */
 class RNMqttClient(reactContext: ReactApplicationContext)
-        : ReactContextBaseJavaModule(reactContext)
-{
+    : ReactContextBaseJavaModule(reactContext) {
     companion object {
         /** Default alias for a root certificate in a key store. */
         const val DEFAULT_CA_CERT_ALIAS: String = "ca-certificate"
@@ -42,19 +35,19 @@ class RNMqttClient(reactContext: ReactApplicationContext)
 
     init {
         reactContext.addLifecycleEventListener(
-            object: LifecycleEventListener {
-                override fun onHostResume() {
-                    Log.d(NAME, "onHostResume")
-                }
+                object : LifecycleEventListener {
+                    override fun onHostResume() {
+                        Log.d(NAME, "onHostResume")
+                    }
 
-                override fun onHostPause() {
-                    Log.d(NAME, "onHostPause")
-                }
+                    override fun onHostPause() {
+                        Log.d(NAME, "onHostPause")
+                    }
 
-                override fun onHostDestroy() {
-                    Log.d(NAME, "onHostDestroy")
+                    override fun onHostDestroy() {
+                        Log.d(NAME, "onHostDestroy")
+                    }
                 }
-            }
         )
     }
 
@@ -66,7 +59,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         } catch (e: MqttException) {
             Log.e(NAME, "failed to disconnect", e)
         } catch (e: IllegalArgumentException) {
-          Log.e(NAME, "failed to disconnect", e)
+            Log.e(NAME, "failed to disconnect", e)
         }
     }
 
@@ -78,13 +71,11 @@ class RNMqttClient(reactContext: ReactApplicationContext)
      * The following key-value pairs have to be specified in `params`.
      * - `caCertPem`: {`String`} PEM representation of a root CA certificate.
      * - `certPem`: {`String`} PEM representation of a certificate.
-     * - `keyPem`: {`String`} PEM representation of a private key.
+     * - `keyTag`: {`String`} key tag of the private key in Keystore.
      * - `keyStoreOptions`: {`ReadableMap`} options for a key store.
      *   May have the following optional key-value pairs,
      *     - `caCertAlias`: {`String`} alias for a root certificate.
      *       `DEFAULT_CA_CERT_ALIAS` if omitted.
-     *     - `keyAlias`: {`String`} alias for a private key.
-     *       `DEFAULT_KEY_ALIAS` if omitted.
      *
      * If there is already connection to an MQTT broker, this new identity
      * won't affect it.
@@ -101,15 +92,13 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     fun setIdentity(params: ReadableMap, promise: Promise) {
         try {
             val keyStoreOptions: ReadableMap? =
-                params.getOptionalMap("keyStoreOptions")
+                    params.getOptionalMap("keyStoreOptions")
             this.socketFactory = SSLSocketFactoryUtil.createSocketFactory(
-                caCertPem=params.getRequiredString("caCertPem"),
-                certPem=params.getRequiredString("certPem"),
-                keyPem=params.getRequiredString("keyPem"),
-                caCertAlias=keyStoreOptions?.getOptionalString("caCertAlias") ?:
-                    DEFAULT_CA_CERT_ALIAS,
-                keyAlias=keyStoreOptions?.getOptionalString("keyAlias") ?:
-                    DEFAULT_KEY_ALIAS
+                    caCertPem = params.getRequiredString("caCertPem"),
+                    certPem = params.getRequiredString("certPem"),
+                    keyTag = params.getRequiredString("keyTag"),
+                    caCertAlias = keyStoreOptions?.getOptionalString("caCertAlias")
+                            ?: DEFAULT_CA_CERT_ALIAS
             )
             promise.resolve(null)
             return
@@ -148,25 +137,25 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     fun loadIdentity(options: ReadableMap?, promise: Promise) {
         try {
             this.socketFactory =
-                SSLSocketFactoryUtil.createSocketFactoryFromAndroidKeyStore()
+                    SSLSocketFactoryUtil.createSocketFactoryFromAndroidKeyStore()
             promise.resolve(null)
             return
         } catch (e: Exception) {
             Log.e(
-                NAME,
-                "failed to load an identity from the Android key store",
-                e
+                    NAME,
+                    "failed to load an identity from the Android key store",
+                    e
             )
             promise.reject("INVALID_IDENTITY", e)
             return
         } catch (e: IllegalArgumentException) {
-          Log.e(
-            NAME,
-            "failed to load an identity from the Android key store",
-            e
-          )
-          promise.reject("INVALID_IDENTITY", e)
-          return
+            Log.e(
+                    NAME,
+                    "failed to load an identity from the Android key store",
+                    e
+            )
+            promise.reject("INVALID_IDENTITY", e)
+            return
         }
     }
 
@@ -194,9 +183,8 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     fun resetIdentity(options: ReadableMap?, promise: Promise) {
         try {
             SSLSocketFactoryUtil.resetAndroidKeyStore(
-                options?.getOptionalString("caCertAlias") ?:
-                    DEFAULT_CA_CERT_ALIAS,
-                options?.getOptionalString("keyAlias") ?: DEFAULT_KEY_ALIAS
+                    options?.getOptionalString("caCertAlias") ?: DEFAULT_CA_CERT_ALIAS,
+                    options?.getOptionalString("keyAlias") ?: DEFAULT_KEY_ALIAS
             )
             this.socketFactory = null
             promise.resolve(null)
@@ -238,9 +226,8 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     fun isIdentityStored(options: ReadableMap?, promise: Promise) {
         try {
             val result = SSLSocketFactoryUtil.isIdentityStoredInAndroidKeyStore(
-                options?.getOptionalString("caCertAlias") ?:
-                    DEFAULT_CA_CERT_ALIAS,
-                options?.getOptionalString("keyAlias") ?: DEFAULT_KEY_ALIAS
+                    options?.getOptionalString("caCertAlias") ?: DEFAULT_CA_CERT_ALIAS,
+                    options?.getOptionalString("keyAlias") ?: DEFAULT_KEY_ALIAS
             )
             promise.resolve(result)
             return
@@ -288,22 +275,22 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         val socketFactory = this.socketFactory
         if (socketFactory == null) {
             promise.reject(
-                "ERROR_CONFIG",
-                Exception("no identity is configured")
+                    "ERROR_CONFIG",
+                    Exception("no identity is configured")
             )
             return
         }
         // initializes a client
         try {
             val brokerUri =
-                "$PROTOCOL://${parsedParams.host}:${parsedParams.port}"
+                    "$PROTOCOL://${parsedParams.host}:${parsedParams.port}"
             val client = MqttAndroidClient(
-                this.getReactApplicationContext().getBaseContext(),
-                brokerUri,
-                parsedParams.clientId
+                    this.getReactApplicationContext().getBaseContext(),
+                    brokerUri,
+                    parsedParams.clientId
             )
             this.client = client
-            client.setCallback(object: MqttCallbackExtended {
+            client.setCallback(object : MqttCallbackExtended {
                 override fun connectComplete(
                         reconnect: Boolean,
                         serverURI: String
@@ -315,8 +302,8 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                 override fun connectionLost(cause: Throwable?) {
                     Log.d(NAME, "connectionLost", cause)
                     this@RNMqttClient.notifyError("ERROR_CONNECTION", cause)
-                    if(!parsedParams.reconnect) {
-                      this@RNMqttClient.notifyEvent("disconnected", null)
+                    if (!parsedParams.reconnect) {
+                        this@RNMqttClient.notifyEvent("disconnected", null)
                     }
                 }
 
@@ -336,7 +323,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                 }
             })
             client.setTraceEnabled(true)
-            client.setTraceCallback(object: MqttTraceHandler {
+            client.setTraceCallback(object : MqttTraceHandler {
                 override fun traceDebug(message: String?) {
                     Log.d("$NAME.trace", "$message")
                 }
@@ -347,8 +334,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
 
                 override fun traceException(
                         message: String?,
-                        e: Exception?)
-                {
+                        e: Exception?) {
                     Log.e("$NAME.trace", "$message", e)
                 }
             })
@@ -358,7 +344,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             connectOptions.isAutomaticReconnect = parsedParams.reconnect
             Log.d(NAME, "connecting to the broker")
             val token = client.connect(connectOptions)
-            token.setActionCallback(object: IMqttActionListener {
+            token.setActionCallback(object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken) {
                     Log.d(NAME, "connected, token: ${asyncActionToken}")
                     promise.resolve(null)
@@ -369,9 +355,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                         cause: Throwable?
                 ) {
                     Log.e(
-                        NAME,
-                        "failed to connect, token: ${asyncActionToken}",
-                        cause
+                            NAME,
+                            "failed to connect, token: ${asyncActionToken}",
+                            cause
                     )
                     promise.reject("ERROR_CONNECTION", cause)
                 }
@@ -381,9 +367,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             promise.reject("ERROR_CONNECTION", e)
             return
         } catch (e: IllegalArgumentException) {
-          Log.e(NAME, "failed to connect", e)
-          promise.reject("ERROR_CONNECTION", e)
-          return
+            Log.e(NAME, "failed to connect", e)
+            promise.reject("ERROR_CONNECTION", e)
+            return
         }
     }
 
@@ -413,9 +399,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                         cause: Throwable?
                 ) {
                     Log.e(
-                        NAME,
-                        "failed to disconnect, token: ${asyncActionToken}",
-                        cause
+                            NAME,
+                            "failed to disconnect, token: ${asyncActionToken}",
+                            cause
                     )
                     this@RNMqttClient.notifyError("ERROR_DISCONNECT", cause)
                 }
@@ -424,9 +410,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             Log.e(NAME, "failed to disconnect", e)
             return
         } catch (e: IllegalArgumentException) {
-          // maybe Invalid ClientHandle
-          Log.e(NAME, "failed to disconnect", e)
-          return
+            // maybe Invalid ClientHandle
+            Log.e(NAME, "failed to disconnect", e)
+            return
         }
     }
 
@@ -456,14 +442,14 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         }
 
         try {
-          val ints = payload.toArrayList().toArray(Array<Number>(payload.size()) {v -> v.toInt()})
-          val bytes = ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
+            val ints = payload.toArrayList().toArray(Array<Number>(payload.size()) { v -> v.toInt() })
+            val bytes = ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
 
-          val token = client.publish(
-                topic,
-                bytes,
-                1, // qos
-                false // not retained
+            val token = client.publish(
+                    topic,
+                    bytes,
+                    1, // qos
+                    false // not retained
             )
             token.setActionCallback(object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken) {
@@ -476,9 +462,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                         cause: Throwable?
                 ) {
                     Log.e(
-                        NAME,
-                        "failed to publish, token: ${asyncActionToken}",
-                        cause
+                            NAME,
+                            "failed to publish, token: ${asyncActionToken}",
+                            cause
                     )
                     this@RNMqttClient.notifyError("ERROR_PUBLISH", cause)
                     promise.reject("ERROR_PUBLISH", cause)
@@ -516,8 +502,8 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         }
         try {
             val token = client.subscribe(
-                topic,
-                1 // qos
+                    topic,
+                    1 // qos
             )
             token.setActionCallback(object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken) {
@@ -530,9 +516,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                         cause: Throwable?
                 ) {
                     Log.e(
-                        NAME,
-                        "failed to subscribe, token: ${asyncActionToken}",
-                        cause
+                            NAME,
+                            "failed to subscribe, token: ${asyncActionToken}",
+                            cause
                     )
                     this@RNMqttClient.notifyError("ERROR_SUBSCRIBE", cause)
                     // TODO: iOS may not be able to reject this case
@@ -563,27 +549,28 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     private fun notifyEvent(eventName: String, params: Any?) {
         Log.d(NAME, "notifying event $eventName")
         this.getReactApplicationContext()
-            .getJSModule(RCTDeviceEventEmitter::class.java)
-            .emit(eventName, params)
+                .getJSModule(RCTDeviceEventEmitter::class.java)
+                .emit(eventName, params)
     }
 
     // Parameters for connection.
     private class ConnectionParameters(
-        val host: String,
-        val port: Int,
-        val clientId: String,
-        val reconnect: Boolean
+            val host: String,
+            val port: Int,
+            val clientId: String,
+            val reconnect: Boolean
     ) {
         companion object {
             // Parses a given object from JavaScript.
             fun parseReadableMap(params: ReadableMap): ConnectionParameters {
                 return ConnectionParameters(
-                    host=params.getRequiredString("host"),
-                    port=params.getRequiredInt("port"),
-                    clientId=params.getRequiredString("clientId"),
-                    reconnect=params.getRequiredBoolean("reconnect")
+                        host = params.getRequiredString("host"),
+                        port = params.getRequiredInt("port"),
+                        clientId = params.getRequiredString("clientId"),
+                        reconnect = params.getRequiredBoolean("reconnect")
                 )
             }
         }
     }
 }
+
