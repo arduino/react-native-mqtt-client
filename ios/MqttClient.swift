@@ -2,6 +2,8 @@ import CocoaMQTT
 import os
 import Security
 
+typealias SecKeyPerformBlock = (SecKey) -> ()
+
 func loadX509Certificate(fromPem: String) -> SecCertificate? {
     let pemContents = fromPem
         .replacingOccurrences(of: "-----BEGIN CERTIFICATE-----", with: "")
@@ -11,22 +13,6 @@ func loadX509Certificate(fromPem: String) -> SecCertificate? {
         return nil
     }
     return SecCertificateCreateWithData(nil, data)
-}
-
-func loadPrivateKey(fromPem: String) -> SecKey? {
-    let pemContents = fromPem
-        .replacingOccurrences(of: "-----BEGIN RSA PRIVATE KEY-----", with: "")
-        .replacingOccurrences(of: "-----END RSA PRIVATE KEY-----", with: "")
-    guard let data = NSData.init(base64Encoded: pemContents, options: NSData.Base64DecodingOptions.ignoreUnknownCharacters) else
-    {
-        return nil
-    }
-    let options: [String: Any] = [
-        kSecAttrType as String: kSecAttrKeyTypeRSA,
-        kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
-        kSecAttrKeySizeInBits as String: 2048 // supposes that the private key has 2048 bits
-    ]
-    return SecKeyCreateWithData(data, options as CFDictionary, nil)
 }
 
 @objc(MqttClient)
@@ -69,12 +55,36 @@ class MqttClient : RCTEventEmitter {
         self.hasListeners = false
     }
 
+    func loadPrivateKeyFromKeychain(keyTag: String, block: SecKeyPerformBlock){
+        var query: [String: AnyObject] = [
+            String(kSecClass)             : kSecClassKey,
+            String(kSecAttrApplicationTag): keyTag as AnyObject,
+            String(kSecReturnRef)         : true as AnyObject
+        ]
+        
+        if #available(iOS 10, *) {
+            query[String(kSecAttrKeyType)] = kSecAttrKeyTypeECSECPrimeRandom
+        } else {
+            // Fallback on earlier versions
+            query[String(kSecAttrKeyType)] = kSecAttrKeyTypeEC
+        }
+        
+        var result : AnyObject?
+        
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        if status == errSecSuccess {
+            print("\(keyTag) Key existed!")
+            block((result as! SecKey?)!)
+        }
+    }
+
     @objc(setIdentity:resolve:reject:)
     func setIdentity(params: NSDictionary, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
     {
         let caCertPem: String = RCTConvert.nsString(params["caCertPem"])
         let certPem: String = RCTConvert.nsString(params["certPem"])
-        let keyPem: String = RCTConvert.nsString(params["keyPem"])
+        let keyTag: String = RCTConvert.nsString(params["keyTag"])
         let keyStoreOptions = RCTConvert.nsDictionary(params["keyStoreOptions"])
         let caCertLabel: String = RCTConvert.nsString(keyStoreOptions?["caCertLabel"]) ?? Self.DEFAULT_CA_CERT_LABEL
         let certLabel: String = RCTConvert.nsString(keyStoreOptions?["certLabel"]) ?? Self.DEFAULT_CERT_LABEL
@@ -87,75 +97,71 @@ class MqttClient : RCTEventEmitter {
             reject("RANGE_ERROR", "invalid certificate", nil)
             return
         }
-        //guard let key = loadPrivateKey(fromPem: keyPem) else {
-        //    reject("RANGE_ERROR", "invalid private key", nil)
-        //    return
-        //}
-        do {
-            guard let key = try ECPrivateKey(key: keyPem).nativeKey else {
-                reject("RANGE_ERROR", "invalid private key", nil)
-                return
+        
+        let block: SecKeyPerformBlock = { privateKey in
+            do {
+                // adds the private key to the keychain
+                let addKeyAttrs: [String: Any] = [
+                    kSecClass as String: kSecClassKey,
+                    kSecValueRef as String: privateKey,
+                    kSecAttrLabel as String: "Private key that signed an MQTT client certificate",
+                    kSecAttrApplicationTag as String: keyApplicationTag
+                ]
+                let err = SecItemAdd(addKeyAttrs as CFDictionary, nil)
+                guard err == errSecSuccess || err == errSecDuplicateItem else {
+                    reject("INVALID_IDENTITY", "failed to add the private key to the keychain: \(err)", nil)
+                    return
+                }
             }
-
-            // adds the private key to the keychain
-            let addKeyAttrs: [String: Any] = [
-                kSecClass as String: kSecClassKey,
-                kSecValueRef as String: key,
-                kSecAttrLabel as String: "Private key that signed an MQTT client certificate",
-                kSecAttrApplicationTag as String: keyApplicationTag
+            catch let error {
+               reject("RANGE_ERROR", error.localizedDescription, nil)
+            }
+            // adds the certificate to the keychain
+            let addCertAttrs: [String: Any] = [
+                kSecClass as String: kSecClassCertificate,
+                kSecValueRef as String: cert,
+                kSecAttrLabel as String: certLabel
             ]
-            let err = SecItemAdd(addKeyAttrs as CFDictionary, nil)
+            var err = SecItemAdd(addCertAttrs as CFDictionary, nil)
             guard err == errSecSuccess || err == errSecDuplicateItem else {
-                reject("INVALID_IDENTITY", "failed to add the private key to the keychain: \(err)", nil)
+                reject("INVALID_IDENTITY", "failed to add the certificate to the keychain: \(err)", nil)
                 return
             }
+            // adds the root certificate to the keychain
+            // TODO: root certificate may be stored in other place,
+            //       because it is public information.
+            let addCaCertAttrs: [String: Any] = [
+                kSecClass as String: kSecClassCertificate,
+                kSecValueRef as String: caCert,
+                kSecAttrLabel as String: caCertLabel
+            ]
+            err = SecItemAdd(addCaCertAttrs as CFDictionary, nil)
+            guard err == errSecSuccess || err == errSecDuplicateItem else {
+                reject("INVALID_IDENTITY", "failed to add the root certificate to the keychain: \(err)", nil)
+                return
+            }
+            // obtains the identity
+            let queryIdentityAttrs: [String: Any] = [
+                kSecClass as String: kSecClassIdentity,
+                kSecAttrApplicationTag as String: keyApplicationTag,
+                kSecReturnRef as String: true
+            ]
+            var identity: CFTypeRef?
+            err = SecItemCopyMatching(queryIdentityAttrs as CFDictionary, &identity)
+            guard err == errSecSuccess else {
+                reject("INVALID_IDENTITY", "failed to query the keychain for the identity: \(err)", nil)
+                return
+            }
+            guard CFGetTypeID(identity) == SecIdentityGetTypeID() else {
+                reject("INVALID_IDENTITY", "failed to query the keychain for the identity: type ID mismatch", nil)
+                return
+            }
+            // remembers the identity and the CA certificate
+            self.certArray = [identity!, caCert] as CFArray
+            resolve(nil)
         }
-        catch let error {
-           reject("RANGE_ERROR", error.localizedDescription, nil)
-        }
-        // adds the certificate to the keychain
-        let addCertAttrs: [String: Any] = [
-            kSecClass as String: kSecClassCertificate,
-            kSecValueRef as String: cert,
-            kSecAttrLabel as String: certLabel
-        ]
-        var err = SecItemAdd(addCertAttrs as CFDictionary, nil)
-        guard err == errSecSuccess || err == errSecDuplicateItem else {
-            reject("INVALID_IDENTITY", "failed to add the certificate to the keychain: \(err)", nil)
-            return
-        }
-        // adds the root certificate to the keychain
-        // TODO: root certificate may be stored in other place,
-        //       because it is public information.
-        let addCaCertAttrs: [String: Any] = [
-            kSecClass as String: kSecClassCertificate,
-            kSecValueRef as String: caCert,
-            kSecAttrLabel as String: caCertLabel
-        ]
-        err = SecItemAdd(addCaCertAttrs as CFDictionary, nil)
-        guard err == errSecSuccess || err == errSecDuplicateItem else {
-            reject("INVALID_IDENTITY", "failed to add the root certificate to the keychain: \(err)", nil)
-            return
-        }
-        // obtains the identity
-        let queryIdentityAttrs: [String: Any] = [
-            kSecClass as String: kSecClassIdentity,
-            kSecAttrApplicationTag as String: keyApplicationTag,
-            kSecReturnRef as String: true
-        ]
-        var identity: CFTypeRef?
-        err = SecItemCopyMatching(queryIdentityAttrs as CFDictionary, &identity)
-        guard err == errSecSuccess else {
-            reject("INVALID_IDENTITY", "failed to query the keychain for the identity: \(err)", nil)
-            return
-        }
-        guard CFGetTypeID(identity) == SecIdentityGetTypeID() else {
-            reject("INVALID_IDENTITY", "failed to query the keychain for the identity: type ID mismatch", nil)
-            return
-        }
-        // remembers the identity and the CA certificate
-        self.certArray = [identity!, caCert] as CFArray
-        resolve(nil)
+        
+        self.loadPrivateKeyFromKeychain(keyTag: keyTag, block: block)
     }
 
     @objc(loadIdentity:resolve:reject:)
