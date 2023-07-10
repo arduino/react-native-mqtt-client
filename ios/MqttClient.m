@@ -12,6 +12,8 @@ RCT_EXTERN_METHOD(isIdentityStored:(NSDictionary*)options resolve:(RCTPromiseRes
 
 RCT_EXTERN_METHOD(connect:(NSDictionary*)params resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(isConnected:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(disconnect)
 
 RCT_EXTERN_METHOD(publish:(NSString*)topic payload:(NSArray*)payload resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)

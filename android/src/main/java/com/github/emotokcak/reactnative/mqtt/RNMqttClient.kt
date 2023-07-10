@@ -537,6 +537,31 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         }
     }
 
+    /**
+     * Determines if this client is currently connected to the server.
+     * Returns: true if connected, false otherwise.
+     *
+     * @param promise
+     *
+     *   Resolved when check connection has done.
+     */
+    @ReactMethod
+    fun isConnected(promise: Promise) {
+        val client = this.client
+        if (client == null) {
+            promise.resolve(false)
+            return
+        }
+        try {
+            val isClientConnected = client.isConnected
+            promise.resolve(isClientConnected)
+        } catch (e: Exception) {
+            Log.e(NAME, "failed to check connection", e)
+            promise.reject("ERROR_CHECK_CONNECTION", e)
+            return
+        }
+    }
+
     // Notifies a `got-error` event.
     private fun notifyError(code: String, cause: Throwable?) {
         val params = Arguments.createMap()
