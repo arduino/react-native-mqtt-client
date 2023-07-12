@@ -225,11 +225,11 @@ export type IdentityParameters = {
    */
   certPem: string;
   /**
-   * PEM representation of a private key that has signed `certificate`.
+   * key tag of the private key in Keystore.
    *
-   * @member {string} keyPem
+   * @member {string} keyTag
    */
-  keyPem: string;
+  keyTag: string;
   /**
    * Options for an identity key store.
    *

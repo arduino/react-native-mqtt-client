@@ -42,7 +42,7 @@ Certificates and a private key are stored in a device specific key store.
 MqttClient.setIdentity({
   caCertPem: IOT_CA_CERT, // PEM representation string of a root certificate
   certPem: IOT_CERT, // PEM representation string of a client certificate
-  keyPem: IOT_KEY, // PEM representation string of a private key
+  keyTag: IOT_KEY, // key tag of the private key in Keystore/Keychain
   keyStoreOptions, // options for a device specific key store. may be omitted
 })
   .then(() => {

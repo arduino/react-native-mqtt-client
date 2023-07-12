@@ -1,12 +1,7 @@
 package com.github.emotokcak.reactnative.mqtt
 
-import java.io.ByteArrayInputStream
-import java.security.KeyFactory
-import java.security.PrivateKey
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
-import java.security.spec.PKCS8EncodedKeySpec
-import java.util.Base64
 
 /** Utility to read a certificate and key from a PEM text. */
 object PEMLoader {
@@ -28,40 +23,6 @@ object PEMLoader {
     fun loadX509CertificateFromString(pem: String): X509Certificate {
         val certificateFactory = CertificateFactory.getInstance("X.509")
         return certificateFactory.generateCertificate(pem.byteInputStream())
-            as X509Certificate
-    }
-
-    /**
-     * Loads an RSA private key from a given PEM text.
-     *
-     * `pem` has to start with "-----BEGIN RSA PRIVATE KEY-----"
-     * and end with "-----END RSA PRIVATE KEY-----".
-     *
-     * @param pem
-     *
-     *   PEM representation of an RSA private key.
-     *
-     * @throws InvalidKeySpecException
-     *
-     *   If `pem` is invalid.
-     *
-     * @throws NoSuchAlgorithmException
-     *
-     *   If the algorithm "RSA" is not supported.
-     */
-    @JvmStatic
-    fun loadPrivateKeyFromString(pem: String): PrivateKey {
-        val isRSA = pem.startsWith("-----BEGIN RSA PRIVATE KEY-----")
-        val pemContents = pem
-            .replace("-----BEGIN RSA PRIVATE KEY-----", "")
-            .replace("-----END RSA PRIVATE KEY-----", "")
-            .replace("-----BEGIN EC PRIVATE KEY-----", "")
-            .replace("-----END EC PRIVATE KEY-----", "")
-            .replace("-----BEGIN PRIVATE KEY-----", "")
-            .replace("-----END PRIVATE KEY-----", "")
-        val data = Base64.getMimeDecoder().decode(pemContents)
-        val keySpec = PKCS8EncodedKeySpec(data)
-        val keyFactory = KeyFactory.getInstance(if (isRSA) "RSA" else "EC")
-        return keyFactory.generatePrivate(keySpec)
+                as X509Certificate
     }
 }
