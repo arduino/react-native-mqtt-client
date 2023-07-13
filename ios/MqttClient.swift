@@ -324,7 +324,30 @@ class MqttClient : RCTEventEmitter {
         _ = self.client!.connect()
         resolve(nil)
     }
-
+    
+    @objc(isConnected:reject:)
+    func isConnected(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+    {
+        os_log("MqttClient: isConnected")
+        guard let client = self.client else {
+            resolve(false)
+            return
+        }
+        var isConnected: Bool
+        let connectionState = client.connState
+        switch connectionState {
+        case .connected:
+            isConnected = true
+        case .connecting:
+            isConnected = false
+        case .disconnected:
+            isConnected = false
+        default:
+            isConnected = false
+        }
+        resolve(isConnected)
+    }
+    
     @objc(disconnect)
     func disconnect() -> Void {
         os_log("MqttClient: disconnecting")

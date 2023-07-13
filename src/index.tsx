@@ -183,6 +183,19 @@ export class MqttClient {
   }
 
   /**
+   * Determines if this client is currently connected to the server
+   *
+   * @function isConnected
+   *
+   * @return {Promise<boolean>}
+   *
+   *   Resolved when check connection has done.
+   */
+  isConnected(): Promise<boolean> {
+    return MqttClientImpl.isConnected();
+  }
+
+  /**
    * Listens for a given event from this client.
    *
    * @function addListener

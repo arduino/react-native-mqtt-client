@@ -128,6 +128,14 @@ To handle messages in the subscribed topic, you have to handle a [`receive-messa
 MqttClient.disconnect();
 ```
 
+### Check if client is connected to an MQTT Broker
+
+`MqttClient.isConnected` checks if client is connected to an MQTT Broker.
+
+```js
+MqttClient.isConnected();
+```
+
 ### Loading an identity
 
 An identity stored in a device specific key store by `MqttClient.setIdentity` may be loaded by `MqttClient.loadIdentity`.
