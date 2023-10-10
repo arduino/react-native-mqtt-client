@@ -161,7 +161,7 @@ export class MqttClient {
    *
    *   Resolved when publishing has finished.
    */
-  publish(topic: string, payload: string): Promise<void> {
+  publish(topic: string, payload: number[]): Promise<void> {
     return MqttClientImpl.publish(topic, payload);
   }
 
