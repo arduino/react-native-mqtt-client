@@ -137,4 +137,4 @@ dependencies {
 
   // Paho MQTT
     implementation 'androidx.legacy:legacy-support-v4:1.0.0'
-    implementation 'com.github.hannesa2:paho.mqtt.android:4.0'}
+    implementation 'com.github.hannesa2:paho.mqtt.android:4.2.4'}
