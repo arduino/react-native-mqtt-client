@@ -1,0 +1,55 @@
+name: Build Github Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: Build Type
+        required: true
+        default: alpha
+        type: choice
+        options:
+          - alpha
+          - release
+
+jobs:
+  internal-build:
+    timeout-minutes: 60
+    name: Test, Build and Publish
+    runs-on: ubuntu-22.04
+    env:
+      REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+      RUN_NUM: ${{ github.run_number }}
+      PKG_VERSION: ${{ vars.PKG_VERSION }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Test
+        uses: ./.github/actions/test
+
+      - name: Initialise Git config
+        run: |
+          git config --global user.email github-actions
+          git config --global user.name github-actions@github.com
+
+      - name: Initialise NPM config
+        run: |
+          npm config set @arduino:registry=https://npm.pkg.github.com/ //npm.pkg.github.com/:_authToken=${REPO_ACCESS_TOKEN}
+
+      - name: Set package version
+        run: |
+          if [ ${{ inputs.build_type }} == "alpha" ]; then
+            npm version ${PKG_VERSION}-alpha.${RUN_NUM}
+          else
+            npm version ${PKG_VERSION}
+          fi
+
+      - name: Publish GH Package
+        run: npm publish
