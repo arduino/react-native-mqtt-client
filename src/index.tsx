@@ -4,7 +4,7 @@ import {
   NativeModules,
 } from 'react-native';
 
-const { MqttClient: MqttClientImpl } = NativeModules;
+const {MqttClient: MqttClientImpl} = NativeModules;
 
 const eventBridge = new NativeEventEmitter(MqttClientImpl);
 

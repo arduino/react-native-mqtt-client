@@ -10,8 +10,9 @@ Pod::Spec.new do |s|
   s.license      = package["license"]
   s.authors      = package["author"]
 
+
   s.platforms    = { :ios => "11.0" }
-  s.source       = { :git => "https://github.com/emoto-kc-ak/react-native-mqtt-client.git", :tag => "#{s.version}" }
+  s.source       = { :git => "https://github.com/arduino/react-native-mqtt-client.git", :tag => "#{s.version}" }
 
 
   s.source_files = "ios/**/*.{h,m,mm,swift}"

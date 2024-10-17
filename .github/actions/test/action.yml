@@ -1,0 +1,13 @@
+name: Test
+description: Test the code with Lint and Typecheck
+
+runs:
+  using: composite
+  steps:
+    - name: Lint files
+      run: yarn lint
+      shell: bash
+
+    - name: Typecheck files
+      run: yarn typecheck
+      shell: bash
