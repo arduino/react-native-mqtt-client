@@ -23,13 +23,19 @@ This library wraps the following libraries,
 ## Installation
 
 ```sh
-npm install --save git+https://github.com/emoto-kc-ak/react-native-mqtt-client.git#v0.1.4
+npm install @arduino/react-native-mqtt-client
+```
+
+or
+
+```sh
+yarn add @arduino/react-native-mqtt-client
 ```
 
 ## Usage
 
 ```js
-import MqttClient from 'react-native-mqtt-client';
+import MqttClient from '@arduino/react-native-mqtt-client';
 ```
 
 ### Configuring an identity
@@ -48,7 +54,7 @@ MqttClient.setIdentity({
   .then(() => {
     /* handle success */
   })
-  .catch(({ code, message }) => {
+  .catch(({code, message}) => {
     /* handle error */
   });
 ```
@@ -74,7 +80,7 @@ MqttClient.connect({
   .then(() => {
     /* handle success */
   })
-  .catch(({ code, message }) => {
+  .catch(({code, message}) => {
     /* handle error */
   });
 ```
@@ -90,7 +96,7 @@ MqttClient.publish(topic, payload)
   .then(() => {
     /* handle success */
   })
-  .catch(({ code, message }) => {
+  .catch(({code, message}) => {
     /* handle error */
   });
 ```
@@ -109,7 +115,7 @@ MqttClient.subscribe(topic)
   .then(() => {
     /* handle success */
   })
-  .catch(({ code, message }) => {
+  .catch(({code, message}) => {
     /* handle error */
   });
 ```
@@ -145,7 +151,7 @@ MqttClient.loadIdentity(keyStoreOptions)
   .then(() => {
     /* handle success */
   })
-  .catch(({ code, message }) => {
+  .catch(({code, message}) => {
     /* handle error */
   });
 ```
@@ -161,7 +167,7 @@ MqttClient.resetIdentity(keyStoreOptions)
   .then(() => {
     /* handle success */
   })
-  .catch(({ code, message }) => {
+  .catch(({code, message}) => {
     /* handle error */
   });
 ```
@@ -174,10 +180,10 @@ Please refer to [Configuring an identity](#configuring-an-identity) for details 
 
 ```js
 MqttClient.isIdentityStored(keyStoreOptions)
-  .then((isStored) => {
+  .then(isStored => {
     /* handle success */
   })
-  .catch(({ code, message }) => {
+  .catch(({code, message}) => {
     /* handle error */
   });
 ```
@@ -217,7 +223,7 @@ MqttClient.addListener('disconnected', () => {
 A `received-message` event is notified when a message is arrived from an MQTT broker.
 
 ```js
-MqttClient.addListener('received-message', ({ topic, payload }) => {
+MqttClient.addListener('received-message', ({topic, payload}) => {
   /* handle message */
 });
 ```
@@ -232,7 +238,7 @@ Where,
 A `got-error` event is notified when an error has occurred.
 
 ```js
-MqttClient.addListener('got-error', (err) => {
+MqttClient.addListener('got-error', err => {
   /* handle error */
 });
 ```
