@@ -1,6 +1,6 @@
 {
   "name": "@arduino/react-native-mqtt-client",
-  "version": "0.2.4",
+  "version": "0.2.7",
   "description": "MQTT client for React Native",
   "main": "./lib/commonjs/index.js",
   "module": "./lib/module/index.js",
@@ -34,8 +34,11 @@
     "ios",
     "android"
   ],
-  "author": "Arduino SA (https://github.com/arduino)",
-  "repository": "https://github.com/arduino/react-native-mqtt-client",
+  "author": "Arduino (https://github.com/arduino)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arduino/react-native-mqtt-client.git"
+  },
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/arduino/react-native-mqtt-client/issues"
