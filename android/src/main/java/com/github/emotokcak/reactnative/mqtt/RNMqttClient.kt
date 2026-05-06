@@ -245,10 +245,15 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     /**
      * Connects to an MQTT broker.
      *
-     * The following key-value pairs have to be specified in `params`.
+     * The following key-value pairs have to be specified in `params`:
      * - `clientId`: {`String`} Client ID of the device.
-     * - `host`: {`String`} Host name of the MQTT broker.
-     * - `port`: {`int`} Port of the MQTT broker.
+     * - For identity-based connection:
+     *   - `host`: {`String`} Host name of the MQTT broker.
+     *   - `port`: {`int`} Port of the MQTT broker.
+     * - For credentials-based connection:
+     *   - `url`: {`String`} Broker URL.
+     *   - `username`: {`String`} Username for authentication.
+     *   - `password`: {`String`} Password for authentication.
      * - `reconnect`: {`Boolean`} Reconnect if connection is lost.
      *
      * @param params
@@ -271,19 +276,18 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             promise.reject("RANGE_ERROR", e)
             return
         }
-        // obtains a socket factory
-        val socketFactory = this.socketFactory
-        if (socketFactory == null) {
-            promise.reject(
-                    "ERROR_CONFIG",
-                    Exception("no identity is configured")
-            )
-            return
-        }
+        // obtains a socket factory in case of identity-based connection
+        val socketFactory =
+            if (parsedParams.username != null && parsedParams.password != null)
+                null
+            else
+                this.socketFactory ?: run {
+                    promise.reject("ERROR_CONFIG", Exception("no identity is configured"))
+                    return
+                }
         // initializes a client
         try {
-            val brokerUri =
-                    "$PROTOCOL://${parsedParams.host}:${parsedParams.port}"
+            val brokerUri = parsedParams.url ?: "$PROTOCOL://${parsedParams.host}:${parsedParams.port}"
             val client = MqttAndroidClient(
                     this.getReactApplicationContext().getBaseContext(),
                     brokerUri,
@@ -318,7 +322,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                     Log.d(NAME, "messageArrived")
                     val arg = Arguments.createMap()
                     arg.putString("topic", topic)
-                    arg.putString("payload", message.toString())
+                    arg.putArray("payload", Arguments.fromArray(message.payload.map { it.toInt() }.toIntArray()))
                     this@RNMqttClient.notifyEvent("received-message", arg)
                 }
             })
@@ -339,7 +343,15 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                 }
             })
             val connectOptions = MqttConnectOptions()
-            connectOptions.socketFactory = socketFactory
+            if (socketFactory != null) {
+                connectOptions.socketFactory = socketFactory
+            }
+            if (parsedParams.username != null) {
+                connectOptions.userName = parsedParams.username
+            }
+            if (parsedParams.password != null) {
+                connectOptions.password = parsedParams.password.toCharArray()
+            }
             connectOptions.isCleanSession = true
             connectOptions.isAutomaticReconnect = parsedParams.reconnect
             Log.d(NAME, "connecting to the broker")
@@ -580,19 +592,25 @@ class RNMqttClient(reactContext: ReactApplicationContext)
 
     // Parameters for connection.
     private class ConnectionParameters(
-            val host: String,
-            val port: Int,
+            val url: String?,
+            val host: String?,
+            val port: Int?,
             val clientId: String,
-            val reconnect: Boolean
+            val reconnect: Boolean,
+            val username: String? = null,
+            val password: String? = null
     ) {
         companion object {
             // Parses a given object from JavaScript.
             fun parseReadableMap(params: ReadableMap): ConnectionParameters {
                 return ConnectionParameters(
-                        host = params.getRequiredString("host"),
-                        port = params.getRequiredInt("port"),
+                        url = if (params.hasKey("url")) params.getString("url") else null,
+                        host = if (params.hasKey("host")) params.getString("host") else null,
+                        port = if (params.hasKey("port")) params.getInt("port") else null,
                         clientId = params.getRequiredString("clientId"),
-                        reconnect = params.getRequiredBoolean("reconnect")
+                        reconnect = params.getRequiredBoolean("reconnect"),
+                        username = if (params.hasKey("username")) params.getString("username") else null,
+                        password = if (params.hasKey("password")) params.getString("password") else null
                 )
             }
         }
