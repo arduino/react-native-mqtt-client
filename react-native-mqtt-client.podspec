@@ -11,7 +11,7 @@ Pod::Spec.new do |s|
   s.authors      = package["author"]
 
 
-  s.platforms    = { :ios => "11.0" }
+  s.platforms    = { :ios => "15.1" }
   s.source       = { :git => "https://github.com/arduino/react-native-mqtt-client.git", :tag => "#{s.version}" }
 
 
@@ -19,5 +19,7 @@ Pod::Spec.new do |s|
 
 
   s.dependency "React"
-  s.dependency "CocoaMQTT", "~> 2.1.1"
+  s.dependency "CocoaMQTT", "= 2.2.4"
+  s.dependency "CocoaMQTT/WebSockets", "= 2.2.4"
+  s.dependency "Starscream", "= 4.0.8"
 end

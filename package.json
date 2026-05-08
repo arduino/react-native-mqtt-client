@@ -1,6 +1,6 @@
 {
   "name": "@arduino/react-native-mqtt-client",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "description": "MQTT client for React Native",
   "main": "./lib/commonjs/index.js",
   "module": "./lib/module/index.js",

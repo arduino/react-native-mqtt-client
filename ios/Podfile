@@ -1,7 +1,9 @@
-platform :ios, '11.0'
+platform :ios, '15.1'
 
 target 'MqttClient' do
   use_frameworks!
 
-  pod 'CocoaMQTT', '2.1.1'
+  pod 'CocoaMQTT', '= 2.2.4'
+  pod 'CocoaMQTT/WebSockets', '= 2.2.4'
+  pod 'Starscream', '= 4.0.8'
 end
