@@ -231,7 +231,7 @@ MqttClient.addListener('received-message', ({topic, payload}) => {
 Where,
 
 - `topic`: (string) Topic where a message has been published.
-- `payload`: (string) Payload of a message. Usually a stringified JSON object.
+- `payload`: (number[]) Payload of a message.
 
 #### got-error
 

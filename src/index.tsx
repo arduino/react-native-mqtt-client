@@ -17,6 +17,7 @@ const eventBridge = new NativeEventEmitter(MqttClientImpl);
  * - `"connected"`
  * - `"disconnected"`
  * - `"got-error"`
+ * - `"received-message"`
  *
  * ##### connected
  *
@@ -36,7 +37,7 @@ const eventBridge = new NativeEventEmitter(MqttClientImpl);
  *
  * The argument is an object which has the following fields,
  * - `topic`: {`string`} topic of the received message.
- * - `payload`: {`string`} payload of the received message.
+ * - `payload`: {`number[]`} payload of the received message.
  *
  * ##### got-error
  *
@@ -298,14 +299,39 @@ export type KeyStoreOptions = {
 };
 
 /**
- * Parameters for connection to an MQTT broker.
+ * Common parameters for MQTT broker connection.
  */
-export type ConnectionParameters = {
-  host: string;
-  port: number;
+export type BaseConnectionParameters = {
   clientId: string;
   reconnect: boolean;
 };
+
+/**
+ * Parameters for identity-based connection to an MQTT broker.
+ */
+export type IdentityBasedConnectionParameters = BaseConnectionParameters & {
+  host: string;
+  port: number;
+};
+
+/**
+ * Parameters for credentials-based connection to an MQTT broker.
+ */
+export type CredentialsBasedConnectionParameters = BaseConnectionParameters & {
+  url: string;
+  username: string;
+  password: string;
+};
+
+/**
+ * Parameters for connection to an MQTT broker.
+ *
+ * Either identity-based (using host and port with a configured identity)
+ * or credentials-based (using url with username and password).
+ */
+export type ConnectionParameters =
+  | IdentityBasedConnectionParameters
+  | CredentialsBasedConnectionParameters;
 
 const defaultInstance = new MqttClient();
 
