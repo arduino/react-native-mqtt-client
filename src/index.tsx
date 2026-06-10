@@ -174,7 +174,10 @@ export class MqttClient {
   }
 
   /**
-   * Disconnects from the MQTT broker.
+   * Disconnects from the MQTT broker and releases the native session held
+   * by this instance, including any cached identity material. To reconnect
+   * on the same instance with identity-based auth, call `setIdentity` or
+   * `loadIdentity` again before `connect`.
    *
    * @function disconnect
    */

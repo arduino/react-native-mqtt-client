@@ -398,13 +398,12 @@ class MqttClient : RCTEventEmitter {
   @objc(disconnect:)
   func disconnect(handle: String) -> Void {
     os_log("MqttClient: disconnecting")
-    if let session = self.sessions[handle] {
+    if let session = self.sessions.removeValue(forKey: handle) {
       session.client?.disconnect()
-      session.client = nil
-      session.delegate = nil
-      // Keep the session itself around: the JS instance may reconnect later
-      // (publishing keeps working only after a fresh connect, which already
-      // overwrites session.client).
+      // Removing the entry releases the cached certArray and SessionDelegate
+      // along with the client. Reconnecting on the same JS instance therefore
+      // requires setIdentity/loadIdentity to be called again for
+      // identity-based auth.
     }
   }
 

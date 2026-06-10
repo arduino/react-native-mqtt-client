@@ -334,7 +334,11 @@ class RNMqttClient(reactContext: ReactApplicationContext)
      */
     @ReactMethod
     fun disconnect(handle: String) {
-        val session = this.sessions[handle]
+        // Remove the entry up-front so the cached socketFactory is released
+        // along with the client. Reconnecting on the same JS instance
+        // therefore requires setIdentity/loadIdentity to be called again for
+        // identity-based auth.
+        val session = this.sessions.remove(handle)
         if (session == null) {
             Log.w(NAME, "no MQTT connection")
             return
@@ -349,7 +353,6 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             token.setActionCallback(object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken) {
                     Log.d(NAME, "disconnected, token: ${asyncActionToken}")
-                    session.client = null
                     this@RNMqttClient.notifyEvent(handle, "disconnected", null)
                 }
 
@@ -383,6 +386,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         val client = this.sessions[handle]?.client
         if (client == null) {
             Log.w(NAME, "failed to publish. no MQTT connection")
+            promise.reject("NO_CONNECTION", Exception("no MQTT connection"))
             return
         }
 
