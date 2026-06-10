@@ -38,6 +38,20 @@ yarn add @arduino/react-native-mqtt-client
 import MqttClient from '@arduino/react-native-mqtt-client';
 ```
 
+The default export is a back-compat singleton. To run multiple independent
+MQTT connections from the same app (different brokers or different
+credentials), construct your own instances — each one owns its own native
+client, its own connection lifecycle, and only delivers events to listeners
+registered on it:
+
+```js
+import {MqttClient} from '@arduino/react-native-mqtt-client';
+
+const dashboard = new MqttClient();
+const device = new MqttClient();
+// dashboard.disconnect() does not affect `device`, and vice versa.
+```
+
 ### Configuring an identity
 
 You have to configure an identity before connecting to an MQTT broker.
