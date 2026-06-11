@@ -18,26 +18,34 @@ func loadX509Certificate(fromPem: String) -> SecCertificate? {
 @objc(MqttClient)
 class MqttClient : RCTEventEmitter {
   static let DEFAULT_KEY_APPLICATION_TAG = "com.github.emoto-kc-ak.react-native-mqtt-client"
-  
+
   static let DEFAULT_CA_CERT_LABEL = "Root certificate of an MQTT broker"
-  
+
   static let DEFAULT_CERT_LABEL = "Certificate for an MQTT client"
-  
-  // certificates for SSL connection.
-  var certArray: CFArray?
-  
-  var client: CocoaMQTT?
-  
+
+  static let HANDLE_KEY = "__handle"
+
+  // Per-instance state. Each JS `MqttClient` is identified by a handle and
+  // gets its own Session, so two instances can connect and disconnect
+  // independently.
+  class Session {
+    var client: CocoaMQTT?
+    var certArray: CFArray?
+    var delegate: SessionDelegate?
+  }
+
+  var sessions: [String: Session] = [:]
+
   var hasListeners: Bool = false
-  
+
   static override func moduleName() -> String! {
     return "MqttClient"
   }
-  
+
   static override func requiresMainQueueSetup() -> Bool {
     return false
   }
-  
+
   override func supportedEvents() -> [String] {
     return [
       "connected",
@@ -46,33 +54,42 @@ class MqttClient : RCTEventEmitter {
       "got-error"
     ]
   }
-  
+
   override func startObserving() -> Void {
     self.hasListeners = true
   }
-  
+
   override func stopObserving() -> Void {
     self.hasListeners = false
   }
-  
+
+  private func session(forHandle handle: String) -> Session {
+    if let existing = self.sessions[handle] {
+      return existing
+    }
+    let s = Session()
+    self.sessions[handle] = s
+    return s
+  }
+
   func loadPrivateKeyFromKeychain(keyTag: String, reject: RCTPromiseRejectBlock, block: SecKeyPerformBlock){
     var query: [String: AnyObject] = [
       String(kSecClass)             : kSecClassKey,
       String(kSecAttrApplicationTag): keyTag as AnyObject,
       String(kSecReturnRef)         : true as AnyObject
     ]
-    
+
     if #available(iOS 10, *) {
       query[String(kSecAttrKeyType)] = kSecAttrKeyTypeECSECPrimeRandom
     } else {
       // Fallback on earlier versions
       query[String(kSecAttrKeyType)] = kSecAttrKeyTypeEC
     }
-    
+
     var result : AnyObject?
-    
+
     let status = SecItemCopyMatching(query as CFDictionary, &result)
-    
+
     if status == errSecSuccess {
       print("\(keyTag) Key existed!")
       block((result as! SecKey?)!)
@@ -80,10 +97,11 @@ class MqttClient : RCTEventEmitter {
       reject("LOAD_KEY_ERROR", "Key does not exist", nil)
     }
   }
-  
-  @objc(setIdentity:resolve:reject:)
-  func setIdentity(params: NSDictionary, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+
+  @objc(setIdentity:params:resolve:reject:)
+  func setIdentity(handle: String, params: NSDictionary, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) -> Void
   {
+    let session = self.session(forHandle: handle)
     let caCertPem: String = RCTConvert.nsString(params["caCertPem"])
     let certPem: String = RCTConvert.nsString(params["certPem"])
     let keyTag: String = RCTConvert.nsString(params["keyTag"])
@@ -99,7 +117,7 @@ class MqttClient : RCTEventEmitter {
       reject("RANGE_ERROR", "invalid certificate", nil)
       return
     }
-    
+
     let block: SecKeyPerformBlock = { privateKey in
       do {
         // adds the private key to the keychain
@@ -158,17 +176,18 @@ class MqttClient : RCTEventEmitter {
         reject("INVALID_IDENTITY", "failed to query the keychain for the identity: type ID mismatch", nil)
         return
       }
-      // remembers the identity and the CA certificate
-      self.certArray = [identity!, caCert] as CFArray
+      // remembers the identity and the CA certificate on this session only
+      session.certArray = [identity!, caCert] as CFArray
       resolve(nil)
     }
-    
+
     self.loadPrivateKeyFromKeychain(keyTag: keyTag, reject: reject, block: block)
   }
-  
-  @objc(loadIdentity:resolve:reject:)
-  func loadIdentity(options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+
+  @objc(loadIdentity:options:resolve:reject:)
+  func loadIdentity(handle: String, options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
+    let session = self.session(forHandle: handle)
     let caCertLabel: String = RCTConvert.nsString(options?["caCertLabel"]) ?? Self.DEFAULT_CA_CERT_LABEL
     let keyApplicationTag: String = RCTConvert.nsString(options?["keyApplicationTag"]) ?? Self.DEFAULT_KEY_APPLICATION_TAG
     // queries a root certificate
@@ -203,13 +222,14 @@ class MqttClient : RCTEventEmitter {
       reject("INVALID_IDENTITY", "failed to query an identity: type mismatch", nil)
       return
     }
-    self.certArray = [identity!, caCert!] as CFArray
+    session.certArray = [identity!, caCert!] as CFArray
     resolve(nil)
   }
-  
-  @objc(resetIdentity:resolve:reject:)
-  func resetIdentity(options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+
+  @objc(resetIdentity:options:resolve:reject:)
+  func resetIdentity(handle: String, options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
+    let session = self.session(forHandle: handle)
     let caCertLabel: String = RCTConvert.nsString(options?["caCertLabel"]) ?? Self.DEFAULT_CA_CERT_LABEL
     let certLabel: String = RCTConvert.nsString(options?["certLabel"]) ?? Self.DEFAULT_CERT_LABEL
     let keyApplicationTag: String = RCTConvert.nsString(options?["keyApplicationTag"]) ?? Self.DEFAULT_KEY_APPLICATION_TAG
@@ -243,13 +263,14 @@ class MqttClient : RCTEventEmitter {
       reject("ILLEGAL_STATE", "failed to delete a private key: \(err)", nil)
       return
     }
-    self.certArray = nil
+    session.certArray = nil
     resolve(nil)
   }
-  
-  @objc(isIdentityStored:resolve:reject:)
-  func isIdentityStored(options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+
+  @objc(isIdentityStored:options:resolve:reject:)
+  func isIdentityStored(handle: String, options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
+    _ = self.session(forHandle: handle)
     let caCertLabel: String = RCTConvert.nsString(options?["caCertLabel"]) ?? Self.DEFAULT_CA_CERT_LABEL
     let keyApplicationTag: String = RCTConvert.nsString(options?["keyApplicationTag"]) ?? Self.DEFAULT_KEY_APPLICATION_TAG
     // checks a root certificate
@@ -296,14 +317,16 @@ class MqttClient : RCTEventEmitter {
     }
     resolve(true)
   }
-  
-  @objc(connect:resolve:reject:)
-  func connect(params: NSDictionary, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+
+  @objc(connect:params:resolve:reject:)
+  func connect(handle: String, params: NSDictionary, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+    let session = self.session(forHandle: handle)
     let username = RCTConvert.nsString(params["username"])
     let password = RCTConvert.nsString(params["password"])
     let clientId: String = RCTConvert.nsString(params["clientId"])
     let reconnect: Bool = RCTConvert.bool(params["reconnect"])
-    
+
+    var client: CocoaMQTT?
     if username != nil && password != nil {
       let urlString = RCTConvert.nsString(params["url"]) ?? ""
       guard let url = URLComponents(string: urlString), let host = url.host, let port = url.port else {
@@ -312,45 +335,48 @@ class MqttClient : RCTEventEmitter {
       }
       if (url.string?.hasPrefix("ws") != nil) {
         let socket = CocoaMQTTWebSocket(uri: "/mqtt")
-        self.client = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port), socket: socket)
+        client = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port), socket: socket)
       } else {
-        self.client = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port))
+        client = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port))
       }
     } else {
-      guard let certArray else {
+      guard let certArray = session.certArray else {
         reject("ERROR_CONFIG", "no identity is configured", nil)
         return
       }
       let host: String = RCTConvert.nsString(params["host"])
       let port: Int = RCTConvert.nsInteger(params["port"])
-      self.client = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port))
-      guard let client = client else {
+      client = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port))
+      guard let c = client else {
         reject("ERROR_CONFIG", "no client is configured", nil)
         return
       }
-      client.sslSettings = [kCFStreamSSLCertificates as String: certArray]
+      c.sslSettings = [kCFStreamSSLCertificates as String: certArray]
     }
-    guard let client = client else {
+    guard let c = client else {
       reject("ERROR_CONFIG", "no client is configured", nil)
       return
     }
-    client.allowUntrustCACertificate = true
-    client.enableSSL = true
-    client.username = username ?? ""
-    client.password = password ?? ""
-    client.keepAlive = 60
-    client.delegate = self
-    client.logLevel = .debug
-    client.autoReconnect = reconnect
-    _ = client.connect()
+    c.allowUntrustCACertificate = true
+    c.enableSSL = true
+    c.username = username ?? ""
+    c.password = password ?? ""
+    c.keepAlive = 60
+    let delegate = SessionDelegate(module: self, handle: handle)
+    c.delegate = delegate
+    c.logLevel = .debug
+    c.autoReconnect = reconnect
+    session.client = c
+    session.delegate = delegate
+    _ = c.connect()
     resolve(nil)
   }
-  
-  @objc(isConnected:reject:)
-  func isConnected(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+
+  @objc(isConnected:resolve:reject:)
+  func isConnected(handle: String, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
     os_log("MqttClient: isConnected")
-    guard let client = self.client else {
+    guard let client = self.sessions[handle]?.client else {
       resolve(false)
       return
     }
@@ -368,36 +394,47 @@ class MqttClient : RCTEventEmitter {
     }
     resolve(isConnected)
   }
-  
-  @objc(disconnect)
-  func disconnect() -> Void {
+
+  @objc(disconnect:)
+  func disconnect(handle: String) -> Void {
     os_log("MqttClient: disconnecting")
-    self.client?.disconnect()
+    if let session = self.sessions.removeValue(forKey: handle) {
+      session.client?.disconnect()
+      // Removing the entry releases the cached certArray and SessionDelegate
+      // along with the client. Reconnecting on the same JS instance therefore
+      // requires setIdentity/loadIdentity to be called again for
+      // identity-based auth.
+    }
   }
-  
+
   // https://stackoverflow.com/a/38161889
   override func invalidate() -> Void {
     os_log("MqttClient: invalidating")
-    self.disconnect()
+    for (_, session) in self.sessions {
+      session.client?.disconnect()
+      session.client = nil
+      session.delegate = nil
+    }
+    self.sessions.removeAll()
   }
-  
-  @objc(publish:payload:resolve:reject:)
-  func publish(topic: String, payload: NSArray, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+
+  @objc(publish:topic:payload:resolve:reject:)
+  func publish(handle: String, topic: String, payload: NSArray, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
     os_log("MqttClient: publishing to %s", topic)
-    guard let client = self.client else {
+    guard let client = self.sessions[handle]?.client else {
       reject("NO_CONNECTION", "no MQTT connection", nil)
       return
     }
     client.publish(CocoaMQTTMessage(topic: topic, payload: payload as! [UInt8], retained: true))
     resolve(nil)
   }
-  
-  @objc(subscribe:resolve:reject:)
-  func subscribe(topic: String, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+
+  @objc(subscribe:topic:resolve:reject:)
+  func subscribe(handle: String, topic: String, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
     os_log("MqttClient: subscribing %s", topic)
-    guard let client = self.client else {
+    guard let client = self.sessions[handle]?.client else {
       reject("NO_CONNECTION", "no MQTT connection", nil)
       return
     }
@@ -405,49 +442,60 @@ class MqttClient : RCTEventEmitter {
     // TODO: subscription has not been done
     resolve(nil)
   }
-  
-  func notifyEvent(eventName: String) -> Void {
-    self.notifyEvent(eventName: eventName, arg: nil)
+
+  func notifyEvent(handle: String, eventName: String) -> Void {
+    self.notifyEvent(handle: handle, eventName: eventName, arg: nil)
   }
-  
-  func notifyEvent(eventName: String, arg: Any?) -> Void {
-    if self.hasListeners {
-      self.sendEvent(withName: eventName, body: arg)
-    }
+
+  func notifyEvent(handle: String, eventName: String, arg: [String: Any]?) -> Void {
+    guard self.hasListeners else { return }
+    var body: [String: Any] = arg ?? [:]
+    body[Self.HANDLE_KEY] = handle
+    self.sendEvent(withName: eventName, body: body)
   }
-  
-  func notifyError(code: String, message: String) -> Void {
-    let arg: [String: String] = [
+
+  func notifyError(handle: String, code: String, message: String) -> Void {
+    let arg: [String: Any] = [
       "code": code,
       "message": message
     ]
-    self.notifyEvent(eventName: "got-error", arg: arg)
+    self.notifyEvent(handle: handle, eventName: "got-error", arg: arg)
   }
 }
 
-extension MqttClient : CocoaMQTTDelegate {
+// A per-session CocoaMQTTDelegate: each session installs its own instance so
+// the delegate callbacks know which JS-side handle to route events to.
+class SessionDelegate : NSObject, CocoaMQTTDelegate {
+  weak var module: MqttClient?
+  let handle: String
+
+  init(module: MqttClient, handle: String) {
+    self.module = module
+    self.handle = handle
+  }
+
   func mqtt(_ mqtt: CocoaMQTT, didConnectAck ack: CocoaMQTTConnAck) {
     os_log("MqttClient: didConnectAck=%s", "\(ack)")
     if ack == .accept {
-      self.notifyEvent(eventName: "connected")
+      self.module?.notifyEvent(handle: self.handle, eventName: "connected")
     } else {
-      self.notifyError(code: "ERROR_CONNECTION", message: "\(ack)")
+      self.module?.notifyError(handle: self.handle, code: "ERROR_CONNECTION", message: "\(ack)")
     }
   }
-  
+
   func mqtt(_ mqtt: CocoaMQTT, didStateChangeTo state: CocoaMQTTConnState) {
     os_log("MqttClient: didStateChangeTo=%s", "\(state)")
   }
-  
+
   func mqtt(_ mqtt: CocoaMQTT, didPublishMessage message: CocoaMQTTMessage, id: UInt16)
   {
     os_log("MqttClient: didPublishMessage=%s", message.string ?? "")
   }
-  
+
   func mqtt(_ mqtt: CocoaMQTT, didPublishAck id: UInt16) {
     os_log("MqttClient: didPublishAck=%d", id)
   }
-  
+
   func mqtt(_ mqtt: CocoaMQTT, didReceiveMessage message: CocoaMQTTMessage, id: UInt16)
   {
     os_log("MqttClient: didReceiveMessage=%s", message.string ?? "")
@@ -455,17 +503,17 @@ extension MqttClient : CocoaMQTTDelegate {
       "topic": message.topic,
       "payload": message.payload
     ]
-    self.notifyEvent(eventName: "received-message", arg: event)
+    self.module?.notifyEvent(handle: self.handle, eventName: "received-message", arg: event)
   }
-  
+
   func mqtt(_ mqtt: CocoaMQTT, didSubscribeTopics success: NSDictionary, failed: [String]) {
     os_log("MqttClient: didSubscribeTopic=%s", "\(success)")
   }
-  
+
   func mqtt(_ mqtt: CocoaMQTT, didUnsubscribeTopics topics: [String]) {
     os_log("MqttClient: didUnsubscribeTopic=%s", topics)
   }
-  
+
   func mqtt(_ mqtt: CocoaMQTT, didReceive trust: SecTrust, completionHandler: @escaping (Bool) -> Void) {
     if mqtt.host.hasPrefix("ws") {
       completionHandler(true)
@@ -474,7 +522,7 @@ extension MqttClient : CocoaMQTTDelegate {
     var result: SecTrustResultType = .invalid
     let trustResultDetailsKey = "TrustResultDetails"
     let validityPeriodMaximumsKey = "ValidityPeriodMaximums"
-    
+
     let queryCaCertAttrs: [String: Any] = [
       kSecClass as String: kSecClassCertificate,
       kSecAttrLabel as String: "arduino-ca",
@@ -490,16 +538,16 @@ extension MqttClient : CocoaMQTTDelegate {
       completionHandler(false)
       return
     }
-    
+
     SecTrustSetAnchorCertificates(trust, [caCert] as CFArray)
-    
+
     SecTrustSetAnchorCertificatesOnly(trust, false)
-    
+
     if (SecTrustEvaluate(trust, &result) != errSecSuccess) {
       completionHandler(false)
       return
     }
-    
+
     switch result {
     case .proceed:
       completionHandler(true)
@@ -522,21 +570,21 @@ extension MqttClient : CocoaMQTTDelegate {
       completionHandler(false)
     }
   }
-  
+
   func mqttDidPing(_ mqtt: CocoaMQTT) {
     os_log("MqttClient: didPing")
   }
-  
+
   func mqttDidReceivePong(_ mqtt: CocoaMQTT) {
     os_log("MqttClient: didReceivePong")
   }
-  
+
   func mqttDidDisconnect(_ mqtt: CocoaMQTT, withError err: Error?) {
     os_log("MqttClient: didDisconnect")
     if err != nil {
-      self.notifyError(code: "ERROR_CONNECTION", message: "\(err!)")
+      self.module?.notifyError(handle: self.handle, code: "ERROR_CONNECTION", message: "\(err!)")
     } else {
-      self.notifyEvent(eventName: "disconnected")
+      self.module?.notifyEvent(handle: self.handle, eventName: "disconnected")
     }
   }
 }

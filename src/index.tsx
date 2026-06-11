@@ -4,12 +4,36 @@ import {
   NativeModules,
 } from 'react-native';
 
-const {MqttClient: MqttClientImpl} = NativeModules;
+const {MqttClient: MqttNativeModule} = NativeModules;
 
-const eventBridge = new NativeEventEmitter(MqttClientImpl);
+const eventBridge = new NativeEventEmitter(MqttNativeModule);
+
+const HANDLE_KEY = '__handle';
+
+const SUPPORTED_EVENTS = [
+  'connected',
+  'disconnected',
+  'received-message',
+  'got-error',
+] as const;
+
+type SupportedEvent = (typeof SUPPORTED_EVENTS)[number];
+
+let handleCounter = 0;
+
+function allocateHandle(): string {
+  handleCounter += 1;
+  return `mqtt-${handleCounter}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 /**
  * MQTT client.
+ *
+ * Each instance of `MqttClient` owns an independent native session: two
+ * instances can connect to different brokers at the same time, and
+ * disconnecting one does not affect the other. The default export
+ * (`import MqttClient from '@arduino/react-native-mqtt-client'`) is a
+ * back-compat singleton — one instance among many, not the only one.
  *
  * #### Events
  *
@@ -18,6 +42,9 @@ const eventBridge = new NativeEventEmitter(MqttClientImpl);
  * - `"disconnected"`
  * - `"got-error"`
  * - `"received-message"`
+ *
+ * Listeners added with `addListener` are scoped to the instance they were
+ * called on.
  *
  * ##### connected
  *
@@ -50,6 +77,12 @@ const eventBridge = new NativeEventEmitter(MqttClientImpl);
  * @class MqttClient
  */
 export class MqttClient {
+  private readonly _handle: string;
+
+  constructor() {
+    this._handle = allocateHandle();
+  }
+
   /**
    * Sets the identity for connection.
    *
@@ -67,7 +100,7 @@ export class MqttClient {
    *   Resolved when the identity is set.
    */
   setIdentity(params: IdentityParameters): Promise<void> {
-    return MqttClientImpl.setIdentity(params);
+    return MqttNativeModule.setIdentity(this._handle, params);
   }
 
   /**
@@ -84,7 +117,7 @@ export class MqttClient {
    *   Resolved when the identity is loaded.
    */
   loadIdentity(options?: KeyStoreOptions): Promise<void> {
-    return MqttClientImpl.loadIdentity(options);
+    return MqttNativeModule.loadIdentity(this._handle, options ?? null);
   }
 
   /**
@@ -103,7 +136,7 @@ export class MqttClient {
    *   Resolved when the identity is reset.
    */
   resetIdentity(options?: KeyStoreOptions): Promise<void> {
-    return MqttClientImpl.resetIdentity(options);
+    return MqttNativeModule.resetIdentity(this._handle, options ?? null);
   }
 
   /**
@@ -122,7 +155,7 @@ export class MqttClient {
    *   a device specific key store.
    */
   isIdentityStored(options?: KeyStoreOptions): Promise<boolean> {
-    return MqttClientImpl.isIdentityStored(options);
+    return MqttNativeModule.isIdentityStored(this._handle, options ?? null);
   }
 
   /**
@@ -137,16 +170,19 @@ export class MqttClient {
    *   Resolved when connection has been established.
    */
   connect(params: ConnectionParameters): Promise<void> {
-    return MqttClientImpl.connect(params);
+    return MqttNativeModule.connect(this._handle, params);
   }
 
   /**
-   * Disconnects from the MQTT broker.
+   * Disconnects from the MQTT broker and releases the native session held
+   * by this instance, including any cached identity material. To reconnect
+   * on the same instance with identity-based auth, call `setIdentity` or
+   * `loadIdentity` again before `connect`.
    *
    * @function disconnect
    */
   disconnect() {
-    MqttClientImpl.disconnect();
+    MqttNativeModule.disconnect(this._handle);
   }
 
   /**
@@ -163,7 +199,7 @@ export class MqttClient {
    *   Resolved when publishing has finished.
    */
   publish(topic: string, payload: number[]): Promise<void> {
-    return MqttClientImpl.publish(topic, payload);
+    return MqttNativeModule.publish(this._handle, topic, payload);
   }
 
   /**
@@ -180,7 +216,7 @@ export class MqttClient {
    *   Resolved when subscription has done.
    */
   subscribe(topic: string): Promise<void> {
-    return MqttClientImpl.subscribe(topic);
+    return MqttNativeModule.subscribe(this._handle, topic);
   }
 
   /**
@@ -193,16 +229,36 @@ export class MqttClient {
    *   Resolved when check connection has done.
    */
   isConnected(): Promise<boolean> {
-    return MqttClientImpl.isConnected();
+    return MqttNativeModule.isConnected(this._handle);
   }
 
   /**
    * Listens for a given event from this client.
    *
+   * The listener only receives events for the instance it was registered on.
+   *
    * @function addListener
    */
-  addListener(eventName: string, listener: ListenerFunction) {
-    return eventBridge.addListener(eventName, listener);
+  addListener(eventName: SupportedEvent | string, listener: ListenerFunction) {
+    const handle = this._handle;
+    return eventBridge.addListener(eventName, (body: any) => {
+      if (body == null || body[HANDLE_KEY] !== handle) return;
+      // Strip the internal __handle field before forwarding to the user's
+      // listener, then preserve the original calling convention: events that
+      // historically had no argument (connected/disconnected) keep doing so.
+      const rest: {[key: string]: any} = {};
+      let hasOther = false;
+      for (const k of Object.keys(body)) {
+        if (k === HANDLE_KEY) continue;
+        rest[k] = body[k];
+        hasOther = true;
+      }
+      if (hasOther) {
+        listener(rest);
+      } else {
+        listener();
+      }
+    });
   }
 
   /**
