@@ -372,8 +372,10 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             Log.e(NAME, "failed to disconnect", e)
             return
         } catch (e: IllegalArgumentException) {
-            // maybe Invalid ClientHandle
-            Log.e(NAME, "failed to disconnect", e)
+            // The underlying ClientHandle is already torn down — already
+            // disconnected from the service's point of view.
+            Log.w(NAME, "failed to disconnect: invalid client handle")
+            this.client = null
             return
         }
     }
@@ -424,9 +426,11 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             promise.reject("ERROR_PUBLISH", e)
             return
         } catch (e: IllegalArgumentException) {
-            // maybe Invalid ClientHandle
-            Log.e(NAME, "failed to publish to ${topic}", e)
-            promise.reject("ERROR_PUBLISH", e)
+            // The underlying ClientHandle has been torn down (e.g. after
+            // disconnect). Per the docstring above, publish does nothing
+            // when there is no MQTT connection.
+            Log.w(NAME, "failed to publish to $topic: invalid client handle")
+            promise.resolve(null)
             return
         }
     }
@@ -471,9 +475,11 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             promise.reject("ERROR_SUBSCRIBE", e)
             return
         } catch (e: IllegalArgumentException) {
-            // maybe Invalid ClientHandle
-            Log.e(NAME, "failed to subscribe '$topic'", e)
-            promise.reject("ERROR_SUBSCRIBE", e)
+            // The underlying ClientHandle has been torn down (e.g. after
+            // disconnect). Treat as "no MQTT connection" — same semantics
+            // as the null-client branch above.
+            Log.w(NAME, "failed to subscribe '$topic': invalid client handle")
+            promise.reject("NO_CONNECTION", Exception("no MQTT connection"))
             return
         }
     }
@@ -491,6 +497,10 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         try {
             val isClientConnected = client.isConnected
             promise.resolve(isClientConnected)
+        } catch (e: IllegalArgumentException) {
+            // The underlying MQTT service has already torn down the
+            // ClientHandle (e.g. after disconnect). Treat as disconnected.
+            promise.resolve(false)
         } catch (e: Exception) {
             Log.e(NAME, "failed to check connection", e)
             promise.reject("ERROR_CHECK_CONNECTION", e)
