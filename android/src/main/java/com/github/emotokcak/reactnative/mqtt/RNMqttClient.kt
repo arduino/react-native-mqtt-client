@@ -373,9 +373,10 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             return
         } catch (e: IllegalArgumentException) {
             // The underlying ClientHandle is already torn down — already
-            // disconnected from the service's point of view.
+            // disconnected from the service's point of view. The session
+            // entry was already removed above, so no further cleanup is
+            // needed here.
             Log.w(NAME, "failed to disconnect: invalid client handle")
-            this.client = null
             return
         }
     }
