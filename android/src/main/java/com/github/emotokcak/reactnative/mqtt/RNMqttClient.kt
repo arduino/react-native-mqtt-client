@@ -298,6 +298,15 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             }
             connectOptions.isCleanSession = true
             connectOptions.isAutomaticReconnect = parsedParams.reconnect
+            // Pin protocol to 3.1.1. When MQTT_VERSION_DEFAULT is used, Paho
+            // retries a failed connect with 3.1 as a fallback and reuses the
+            // same WebSocketSecureNetworkModule instance. That module's
+            // PipedInputStream is initialised once in the constructor and
+            // start() is not idempotent, so the retry throws
+            // IOException: Already connected. Pinning the version disables
+            // the fallback and surfaces the original failure to JS, which
+            // arduino-iot-js retries at a higher level.
+            connectOptions.mqttVersion = MqttConnectOptions.MQTT_VERSION_3_1_1
             Log.d(NAME, "connecting to the broker")
             val token = client.connect(connectOptions)
             token.setActionCallback(object : IMqttActionListener {
@@ -310,12 +319,32 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                         asyncActionToken: IMqttToken,
                         cause: Throwable?
                 ) {
+                    val reasonCode = (cause as? MqttException)?.reasonCode
+                    val rootCause = describeRootCause(cause)
                     Log.e(
                             NAME,
-                            "failed to connect, token: ${asyncActionToken}",
+                            "failed to connect, token: ${asyncActionToken}, reasonCode: ${reasonCode}, rootCause: ${rootCause}",
                             cause
                     )
-                    promise.reject("ERROR_CONNECTION", cause)
+                    val code = when (reasonCode?.toShort()) {
+                        MqttException.REASON_CODE_NOT_AUTHORIZED,
+                        MqttException.REASON_CODE_FAILED_AUTHENTICATION ->
+                            "ERROR_NOT_AUTHORIZED"
+                        else -> "ERROR_CONNECTION"
+                    }
+                    val baseMessage = if (reasonCode != null) {
+                        "${cause?.message ?: "MqttException"} (reasonCode=${reasonCode})"
+                    } else {
+                        cause?.message
+                            ?: cause?.javaClass?.simpleName
+                            ?: "connection failed"
+                    }
+                    val message = if (rootCause != null) {
+                        "$baseMessage: $rootCause"
+                    } else {
+                        baseMessage
+                    }
+                    promise.reject(code, message, cause)
                 }
             })
         } catch (e: MqttException) {
@@ -370,14 +399,22 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             })
         } catch (e: MqttException) {
             Log.e(NAME, "failed to disconnect", e)
-            return
         } catch (e: IllegalArgumentException) {
             // The underlying ClientHandle is already torn down — already
             // disconnected from the service's point of view. The session
             // entry was already removed above, so no further cleanup is
             // needed here.
             Log.w(NAME, "failed to disconnect: invalid client handle")
-            return
+        } finally {
+            // close() must run synchronously (not from the async disconnect
+            // callback) so the process-wide MqttService drops its registration
+            // for (serverURI, clientId) before the next connect() constructs a
+            // fresh MqttAndroidClient with the same key. If we defer close()
+            // until onSuccess/onFailure fires and the callback never runs
+            // (service torn down, app backgrounded, promise abandoned), the
+            // stale service entry causes "IOException: Already connected" on
+            // reconnect.
+            closeClientQuietly(client)
         }
     }
 
@@ -515,6 +552,43 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         params.putString("code", code)
         params.putString("message", cause?.message ?: "")
         this.notifyEvent(handle, "got-error", params)
+    }
+
+    // Closes the underlying MqttAndroidClient, swallowing any failure.
+    // MqttAndroidClient talks to an in-process Android Service that keys
+    // clients by clientId; disconnect() only sends the DISCONNECT packet
+    // and does not unregister the client from the service. Without a
+    // subsequent close(), reconnecting with the same clientId fails with
+    // "IOException: Already connected".
+    private fun closeClientQuietly(client: MqttAndroidClient) {
+        try {
+            client.close()
+        } catch (e: Exception) {
+            Log.w(NAME, "failed to close MQTT client", e)
+        }
+    }
+
+    // Walks the exception chain and returns a compact description of the
+    // deepest cause (type + message), or null if there is no wrapped cause.
+    // Paho wraps low-level failures (IOException, SSLException, EOFException,
+    // etc.) inside a generic MqttException(reasonCode=0), so the actual root
+    // cause is otherwise hidden from JS consumers.
+    private fun describeRootCause(cause: Throwable?): String? {
+        if (cause == null) return null
+        var current: Throwable = cause
+        val seen = mutableSetOf<Throwable>(current)
+        while (true) {
+            val next = current.cause ?: break
+            if (!seen.add(next)) break
+            current = next
+        }
+        if (current === cause) return null
+        val message = current.message
+        return if (message.isNullOrBlank()) {
+            current.javaClass.simpleName
+        } else {
+            "${current.javaClass.simpleName}: $message"
+        }
     }
 
     // Notifies a given event. The handle is injected into the body so the JS

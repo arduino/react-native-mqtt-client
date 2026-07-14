@@ -257,6 +257,18 @@ MqttClient.addListener('got-error', err => {
 });
 ```
 
+`err.code` is one of:
+
+- `ERROR_NOT_AUTHORIZED`: broker rejected the connection because credentials are
+  invalid or expired (CocoaMQTT `.notAuthorized` / `.badUsernameOrPassword`, Paho
+  reason codes 4 and 5). On Android this code is also surfaced through the
+  `connect()` promise rejection.
+- `ERROR_CONNECTION`: any other connection failure (network, TLS, unavailable
+  broker, protocol mismatch, etc.).
+- `ERROR_DISCONNECT` (Android only): the client lost an established connection.
+- `ERROR_PUBLISH` (Android only): a publish operation failed.
+- `ERROR_SUBSCRIBE` (Android only): a subscribe operation failed.
+
 ## iOS Tips
 
 ### Solving pod install error
