@@ -479,7 +479,14 @@ class SessionDelegate : NSObject, CocoaMQTTDelegate {
     if ack == .accept {
       self.module?.notifyEvent(handle: self.handle, eventName: "connected")
     } else {
-      self.module?.notifyError(handle: self.handle, code: "ERROR_CONNECTION", message: "\(ack)")
+      let code: String
+      switch ack {
+      case .notAuthorized, .badUsernameOrPassword:
+        code = "ERROR_NOT_AUTHORIZED"
+      default:
+        code = "ERROR_CONNECTION"
+      }
+      self.module?.notifyError(handle: self.handle, code: code, message: "\(ack)")
     }
   }
 
