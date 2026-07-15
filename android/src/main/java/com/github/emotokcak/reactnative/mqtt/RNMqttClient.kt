@@ -298,6 +298,11 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             }
             connectOptions.isCleanSession = true
             connectOptions.isAutomaticReconnect = parsedParams.reconnect
+            // Paho's default maxReconnectDelay is 128000ms; the 1→2→4→8→16→
+            // 32→64→128s backoff means a socket dropped during Doze can take
+            // ~45s+ to recover after foreground. Cap at 5s so reconnect
+            // matches perceived app latency.
+            connectOptions.maxReconnectDelay = 5000
             // Pin protocol to 3.1.1. When MQTT_VERSION_DEFAULT is used, Paho
             // retries a failed connect with 3.1 as a fallback and reuses the
             // same WebSocketSecureNetworkModule instance. That module's
