@@ -366,6 +366,11 @@ class MqttClient : RCTEventEmitter {
     c.delegate = delegate
     c.logLevel = .debug
     c.autoReconnect = reconnect
+    // CocoaMQTT's default maxAutoReconnectTimeInterval is 128s; the 1→2→4→8→
+    // 16→32→64→128s backoff means a socket dropped in background can take
+    // ~45s+ to recover after foreground. Cap at 5s so reconnect matches
+    // perceived app latency.
+    c.maxAutoReconnectTimeInterval = 5
     session.client = c
     session.delegate = delegate
     _ = c.connect()
