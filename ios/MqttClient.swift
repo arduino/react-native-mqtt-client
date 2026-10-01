@@ -320,7 +320,9 @@ public class MqttClientImpl : NSObject {
       }
       switch scheme {
       case "ws", "wss":
-        let socket = CocoaMQTTWebSocket(uri: url.path.isEmpty ? "/mqtt" : url.path)
+        let path = url.percentEncodedPath.isEmpty ? "/mqtt" : url.percentEncodedPath
+        let query = url.percentEncodedQuery.map { "?\($0)" } ?? ""
+        let socket = CocoaMQTTWebSocket(uri: path + query)
         c = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port), socket: socket)
       case "tcp", "mqtt", "ssl", "mqtts":
         c = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port))
@@ -523,6 +525,9 @@ class SessionDelegate : NSObject, CocoaMQTTDelegate {
     self.pendingDisconnect = nil
     self.closingSession = nil
     self.rejectPendingOperations(code: "NO_CONNECTION", message: "disconnected")
+    // A disconnect requested while connecting settles the connect too.
+    self.pendingConnect?.reject("NO_CONNECTION", "disconnected", nil)
+    self.pendingConnect = nil
     promise.resolve(nil)
   }
 
