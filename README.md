@@ -4,11 +4,19 @@ MQTT client for React Native application.
 
 ## Features
 
-- Secure MQTT connection over TLS 1.2.
+- Secure MQTT connection over TLS.
 - Authentication of both of server and client by X.509 certificates.
 - Certificates and a private key stored in a device specific key store.
   - [Android KeyStore](https://developer.android.com/training/articles/keystore#UsingAndroidKeyStore) on Android
   - [Default keychain](https://developer.apple.com/documentation/security/keychain_services/keychains) on iOS
+- Key pair and certificate signing request generated on the device, so the
+  private key never leaves secure hardware (Secure Enclave on iOS).
+- Username/password connections over TCP, TLS or WebSocket.
+
+## Requirements
+
+React Native 0.76 or later with the New Architecture: the native module is a
+TurboModule.
 
 ## Dependencies
 
@@ -52,6 +60,21 @@ const device = new MqttClient();
 // dashboard.disconnect() does not affect `device`, and vice versa.
 ```
 
+### Generating a key pair
+
+`generateCSR` creates an EC P-256 key pair in the device key store and returns
+a PEM certificate signing request, to be signed by your certificate authority.
+Any key previously stored under the same tag is replaced.
+
+```js
+import {generateCSR} from '@arduino/react-native-mqtt-client';
+
+const csrPem = await generateCSR(commonName, keyTag);
+```
+
+The private key is stored under `keyTag` on Android and under
+`` `${keyTag}.private` `` on iOS: pass that value as `keyTag` to `setIdentity`.
+
 ### Configuring an identity
 
 You have to configure an identity before connecting to an MQTT broker.
@@ -83,7 +106,9 @@ MqttClient.setIdentity({
 
 ### Connecting to an MQTT broker
 
-`MqttClient.connect` connects to an MQTT broker.
+`MqttClient.connect` connects to an MQTT broker. The promise resolves once the
+broker has accepted the connection, and rejects with `ERROR_NOT_AUTHORIZED` if
+it refused the credentials.
 
 ```js
 MqttClient.connect({
@@ -99,11 +124,27 @@ MqttClient.connect({
   });
 ```
 
-It attempts to connect to `ssl://$IOT_ENDPOINT:$IOT_PORT`.
+It attempts to connect to `ssl://$IOT_ENDPOINT:$IOT_PORT` with the configured
+identity, trusting only the configured root certificate.
+
+To connect with a username and a password instead, pass `url`, `username` and
+`password`. The scheme of `url` selects the transport: `wss`/`ws` (WebSocket),
+`ssl`/`mqtts` (TLS) or `tcp`/`mqtt`.
+
+```js
+MqttClient.connect({
+  url: 'wss://broker.example.com:8443/mqtt',
+  username,
+  password,
+  clientId,
+  reconnect: true,
+});
+```
 
 ### Publishing a message
 
-`MqttClient.publish` publishes a message to an MQTT broker.
+`MqttClient.publish` publishes a message to an MQTT broker with QoS 1. The
+promise resolves when the broker acknowledges the message.
 
 ```js
 MqttClient.publish(topic, payload)
@@ -118,11 +159,12 @@ MqttClient.publish(topic, payload)
 Where,
 
 - `topic`: (string) Topic where `payload` is to be published.
-- `payload`: (string) Payload to be published. Usually a stringified JSON object.
+- `payload`: (number[]) Bytes to be published.
 
 ### Subscribing a topic
 
-`MqttClient.subscribe` subscribes a topic of an MQTT broker.
+`MqttClient.subscribe` subscribes a topic of an MQTT broker with QoS 1. The
+promise resolves when the broker acknowledges the subscription.
 
 ```js
 MqttClient.subscribe(topic)
@@ -142,10 +184,11 @@ To handle messages in the subscribed topic, you have to handle a [`receive-messa
 
 ### Disconnecting from an MQTT broker
 
-`MqttClient.disconnect` disconnects from an MQTT broker.
+`MqttClient.disconnect` disconnects from an MQTT broker. The promise resolves
+once the connection is closed, or right away if the client is not connected.
 
 ```js
-MqttClient.disconnect();
+await MqttClient.disconnect();
 ```
 
 ### Check if client is connected to an MQTT Broker
@@ -204,9 +247,29 @@ MqttClient.isIdentityStored(keyStoreOptions)
 
 Where,
 
-- `isStored`: (boolean) Whether an identity is stored in a device-specific key store.
+- `isStored`: (boolean) Whether an identity is stored in a device-specific key store
+  and usable on this device. On iOS, an identity restored from another device's
+  backup is reported as not stored: its private key stayed in that device's
+  Secure Enclave.
 
 Please refer to [Configuring an identity](#configuring-an-identity) for details of `keyStoreOptions`.
+
+### Deleting unused identities
+
+Keys and certificates are only removed when asked to. `deleteIdentities`
+deletes the entries whose name starts with one of `prefixes` and with none of
+`keep`, and resolves to how many it deleted. The name is the alias on Android,
+and the application tag of a key or the label of a certificate on iOS.
+
+```js
+import {deleteIdentities} from '@arduino/react-native-mqtt-client';
+
+// Keep only the identity of `deviceId`.
+await deleteIdentities(
+  ['cert-', 'key-'],
+  [`cert-${deviceId}`, `key-${deviceId}`],
+);
+```
 
 ### Handling events
 
@@ -249,25 +312,34 @@ Where,
 
 #### got-error
 
-A `got-error` event is notified when an error has occurred.
+A `got-error` event is notified when the connection itself fails: the
+connection is lost, or a reconnection is refused. A method that returns a
+promise reports its own failure only through that promise.
 
 ```js
-MqttClient.addListener('got-error', err => {
+MqttClient.addListener('got-error', ({code, message}) => {
   /* handle error */
 });
 ```
 
-`err.code` is one of:
+### Error codes
 
-- `ERROR_NOT_AUTHORIZED`: broker rejected the connection because credentials are
-  invalid or expired (CocoaMQTT `.notAuthorized` / `.badUsernameOrPassword`, Paho
-  reason codes 4 and 5). On Android this code is also surfaced through the
-  `connect()` promise rejection.
-- `ERROR_CONNECTION`: any other connection failure (network, TLS, unavailable
-  broker, protocol mismatch, etc.).
-- `ERROR_DISCONNECT` (Android only): the client lost an established connection.
-- `ERROR_PUBLISH` (Android only): a publish operation failed.
-- `ERROR_SUBSCRIBE` (Android only): a subscribe operation failed.
+The `code` of a rejected promise or of a `got-error` event is the same on both
+platforms (`MqttErrorCode` in TypeScript):
+
+| Code                     | Meaning                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| `NO_CONNECTION`          | The instance has no connection, or it was closed while the call was waiting for the broker. |
+| `ERROR_CONFIG`           | Invalid connection parameters, or no identity configured.                                   |
+| `ERROR_CONNECTION`       | Network, TLS or broker failure.                                                             |
+| `ERROR_NOT_AUTHORIZED`   | The broker refused the credentials.                                                         |
+| `ERROR_PUBLISH`          | The message could not be published.                                                         |
+| `ERROR_SUBSCRIBE`        | The broker refused the subscription.                                                        |
+| `ERROR_DISCONNECT`       | The client could not be disconnected (Android).                                             |
+| `ERROR_CHECK_CONNECTION` | The connection state could not be read (Android).                                           |
+| `INVALID_IDENTITY`       | The identity is missing, unusable on this device, or could not be stored or generated.      |
+| `ILLEGAL_STATE`          | The key store could not be read or changed.                                                 |
+| `RANGE_ERROR`            | Invalid argument.                                                                           |
 
 ## iOS Tips
 
