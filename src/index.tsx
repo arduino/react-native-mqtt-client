@@ -176,9 +176,14 @@ export class MqttClient {
    * `loadIdentity` again before `connect`.
    *
    * @function disconnect
+   *
+   * @return Promise<void>
+   *
+   *   Resolved when the connection is closed, or right away if this instance
+   *   is not connected.
    */
-  disconnect() {
-    MqttNativeModule.disconnect(this._handle);
+  disconnect(): Promise<void> {
+    return MqttNativeModule.disconnect(this._handle);
   }
 
   /**
@@ -192,7 +197,7 @@ export class MqttClient {
    *
    * @return Promise<void>
    *
-   *   Resolved when publishing has finished.
+   *   Resolved when the broker has acknowledged the message (QoS 1).
    */
   publish(topic: string, payload: number[]): Promise<void> {
     return MqttNativeModule.publish(this._handle, topic, payload);
@@ -209,7 +214,7 @@ export class MqttClient {
    *
    * @return {Promise<void>}
    *
-   *   Resolved when subscription has done.
+   *   Resolved when the broker has acknowledged the subscription.
    */
   subscribe(topic: string): Promise<void> {
     return MqttNativeModule.subscribe(this._handle, topic);
@@ -266,6 +271,26 @@ export class MqttClient {
     subscription.remove();
   }
 }
+
+/**
+ * `code` of a rejected promise or of a `got-error` event.
+ *
+ * A method returning a promise reports its failure only through that
+ * promise; `got-error` carries the errors of the connection itself
+ * (connection lost, refused reconnection).
+ */
+export type MqttErrorCode =
+  | 'NO_CONNECTION'
+  | 'ERROR_CONFIG'
+  | 'ERROR_CONNECTION'
+  | 'ERROR_NOT_AUTHORIZED'
+  | 'ERROR_DISCONNECT'
+  | 'ERROR_PUBLISH'
+  | 'ERROR_SUBSCRIBE'
+  | 'ERROR_CHECK_CONNECTION'
+  | 'INVALID_IDENTITY'
+  | 'ILLEGAL_STATE'
+  | 'RANGE_ERROR';
 
 /**
  * Listener function.

@@ -108,8 +108,10 @@ RCT_EXPORT_MODULE()
 }
 
 - (void)disconnect:(NSString *)handle
+           resolve:(RCTPromiseResolveBlock)resolve
+            reject:(RCTPromiseRejectBlock)reject
 {
-  [_impl disconnect:handle];
+  [_impl disconnect:handle resolve:resolve reject:reject];
 }
 
 - (void)publish:(NSString *)handle

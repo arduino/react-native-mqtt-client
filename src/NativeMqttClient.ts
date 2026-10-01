@@ -24,7 +24,7 @@ export interface Spec extends TurboModule {
   ): Promise<boolean>;
   connect(handle: string, params: CodegenTypes.UnsafeObject): Promise<void>;
   isConnected(handle: string): Promise<boolean>;
-  disconnect(handle: string): void;
+  disconnect(handle: string): Promise<void>;
   publish(handle: string, topic: string, payload: number[]): Promise<void>;
   subscribe(handle: string, topic: string): Promise<void>;
 

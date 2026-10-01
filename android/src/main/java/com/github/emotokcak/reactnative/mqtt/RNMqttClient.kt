@@ -4,7 +4,6 @@ import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.module.annotations.ReactModule
 import info.mqtt.android.service.MqttAndroidClient
-import info.mqtt.android.service.MqttTraceHandler
 import org.eclipse.paho.client.mqttv3.*
 import javax.net.ssl.SSLSocketFactory
 
@@ -52,24 +51,6 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             this.sessions[handle] = s
         }
         return s
-    }
-
-    init {
-        reactContext.addLifecycleEventListener(
-                object : LifecycleEventListener {
-                    override fun onHostResume() {
-                        Log.d(NAME, "onHostResume")
-                    }
-
-                    override fun onHostPause() {
-                        Log.d(NAME, "onHostPause")
-                    }
-
-                    override fun onHostDestroy() {
-                        Log.d(NAME, "onHostDestroy")
-                    }
-                }
-        )
     }
 
     override fun invalidate() {
@@ -264,22 +245,6 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                     this@RNMqttClient.notifyEvent(handle, "received-message", arg)
                 }
             })
-            client.setTraceEnabled(true)
-            client.setTraceCallback(object : MqttTraceHandler {
-                override fun traceDebug(message: String?) {
-                    Log.d("$NAME.trace", "$message")
-                }
-
-                override fun traceError(message: String?) {
-                    Log.e("$NAME.trace", "$message")
-                }
-
-                override fun traceException(
-                        message: String?,
-                        e: Exception?) {
-                    Log.e("$NAME.trace", "$message", e)
-                }
-            })
             val connectOptions = MqttConnectOptions()
             if (socketFactory != null) {
                 connectOptions.socketFactory = socketFactory
@@ -359,22 +324,21 @@ class RNMqttClient(reactContext: ReactApplicationContext)
 
     /**
      * Disconnects from the MQTT broker.
+     *
+     * Resolved once the client is closed, or right away when there is no
+     * connection to close.
      */
-    override fun disconnect(handle: String) {
+    override fun disconnect(handle: String, promise: Promise) {
         // Remove the entry up-front so the cached socketFactory is released
         // along with the client. Reconnecting on the same JS instance
         // therefore requires setIdentity/loadIdentity to be called again for
         // identity-based auth.
-        val session = this.sessions.remove(handle)
-        if (session == null) {
-            Log.w(NAME, "no MQTT connection")
-            return
-        }
-        val client = session.client
+        val client = this.sessions.remove(handle)?.client
         if (client == null) {
-            Log.w(NAME, "no MQTT connection")
+            promise.resolve(null)
             return
         }
+        var failure: MqttException? = null
         try {
             val token = client.disconnect()
             token.setActionCallback(object : IMqttActionListener {
@@ -392,11 +356,18 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                             "failed to disconnect, token: ${asyncActionToken}",
                             cause
                     )
-                    this@RNMqttClient.notifyError(handle, "ERROR_DISCONNECT", cause)
                 }
             })
         } catch (e: MqttException) {
             Log.e(NAME, "failed to disconnect", e)
+            val alreadyDisconnected = when (e.reasonCode.toShort()) {
+                MqttException.REASON_CODE_CLIENT_ALREADY_DISCONNECTED,
+                MqttException.REASON_CODE_CLIENT_NOT_CONNECTED -> true
+                else -> false
+            }
+            if (!alreadyDisconnected) {
+                failure = e
+            }
         } catch (e: IllegalArgumentException) {
             // The underlying ClientHandle is already torn down — already
             // disconnected from the service's point of view. The session
@@ -413,6 +384,11 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             // stale service entry causes "IOException: Already connected" on
             // reconnect.
             closeClientQuietly(client)
+        }
+        if (failure != null) {
+            promise.reject("ERROR_DISCONNECT", failure)
+        } else {
+            promise.resolve(null)
         }
     }
 
@@ -452,7 +428,6 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                             "failed to publish, token: ${asyncActionToken}",
                             cause
                     )
-                    this@RNMqttClient.notifyError(handle, "ERROR_PUBLISH", cause)
                     promise.reject("ERROR_PUBLISH", cause)
                 }
             })
@@ -462,10 +437,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             return
         } catch (e: IllegalArgumentException) {
             // The underlying ClientHandle has been torn down (e.g. after
-            // disconnect). Per the docstring above, publish does nothing
-            // when there is no MQTT connection.
+            // disconnect). Same as the null-client branch above.
             Log.w(NAME, "failed to publish to $topic: invalid client handle")
-            promise.resolve(null)
+            promise.reject("NO_CONNECTION", Exception("no MQTT connection"))
             return
         }
     }
@@ -499,8 +473,6 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                             "failed to subscribe, token: ${asyncActionToken}",
                             cause
                     )
-                    this@RNMqttClient.notifyError(handle, "ERROR_SUBSCRIBE", cause)
-                    // TODO: iOS may not be able to reject this case
                     promise.reject("ERROR_SUBSCRIBE", cause)
                 }
             })

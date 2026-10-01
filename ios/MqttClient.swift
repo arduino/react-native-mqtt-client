@@ -27,6 +27,13 @@ public class MqttClientImpl : NSObject {
 
   static let HANDLE_KEY = "__handle"
 
+  // Fallback for a disconnect the socket never reports back.
+  static let DISCONNECT_TIMEOUT: TimeInterval = 5
+
+  // CocoaMQTT's delegate queue: callbacks and pending promises are
+  // serialised on it.
+  let queue = DispatchQueue(label: "cc.arduino.react-native-mqtt-client")
+
   // Per-instance state. Each JS `MqttClient` is identified by a handle and
   // gets its own Session, so two instances can connect and disconnect
   // independently.
@@ -71,7 +78,7 @@ public class MqttClientImpl : NSObject {
       print("\(keyTag) Key existed!")
       block((result as! SecKey?)!)
     } else {
-      reject("LOAD_KEY_ERROR", "Key does not exist", nil)
+      reject("INVALID_IDENTITY", "the private key does not exist", nil)
     }
   }
 
@@ -296,26 +303,31 @@ public class MqttClientImpl : NSObject {
   }
 
   @objc(connect:params:resolve:reject:)
-  public func connect(handle: String, params: NSDictionary, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+  public func connect(handle: String, params: NSDictionary, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
     let session = self.session(forHandle: handle)
     let username = RCTConvert.nsString(params["username"])
     let password = RCTConvert.nsString(params["password"])
     let clientId: String = RCTConvert.nsString(params["clientId"])
     let reconnect: Bool = RCTConvert.bool(params["reconnect"])
 
-    var client: CocoaMQTT?
+    let c: CocoaMQTT
     if username != nil && password != nil {
       let urlString = RCTConvert.nsString(params["url"]) ?? ""
-      guard let url = URLComponents(string: urlString), let host = url.host, let port = url.port else {
+      guard let url = URLComponents(string: urlString), let scheme = url.scheme, let host = url.host, let port = url.port else {
         reject("ERROR_CONFIG", "Error parsing URL", nil)
         return
       }
-      if (url.string?.hasPrefix("ws") != nil) {
-        let socket = CocoaMQTTWebSocket(uri: "/mqtt")
-        client = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port), socket: socket)
-      } else {
-        client = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port))
+      switch scheme {
+      case "ws", "wss":
+        let socket = CocoaMQTTWebSocket(uri: url.path.isEmpty ? "/mqtt" : url.path)
+        c = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port), socket: socket)
+      case "tcp", "mqtt", "ssl", "mqtts":
+        c = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port))
+      default:
+        reject("ERROR_CONFIG", "unsupported URL scheme: \(scheme)", nil)
+        return
       }
+      c.enableSSL = ["wss", "ssl", "mqtts"].contains(scheme)
     } else {
       guard let certArray = session.certArray else {
         reject("ERROR_CONFIG", "no identity is configured", nil)
@@ -323,25 +335,18 @@ public class MqttClientImpl : NSObject {
       }
       let host: String = RCTConvert.nsString(params["host"])
       let port: Int = RCTConvert.nsInteger(params["port"])
-      client = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port))
-      guard let c = client else {
-        reject("ERROR_CONFIG", "no client is configured", nil)
-        return
-      }
+      c = CocoaMQTT(clientID: clientId, host: host, port: UInt16(port))
       c.sslSettings = [kCFStreamSSLCertificates as String: certArray]
-    }
-    guard let c = client else {
-      reject("ERROR_CONFIG", "no client is configured", nil)
-      return
+      c.enableSSL = true
     }
     c.allowUntrustCACertificate = true
-    c.enableSSL = true
     c.username = username ?? ""
     c.password = password ?? ""
     c.keepAlive = 60
     let delegate = SessionDelegate(module: self, handle: handle)
     c.delegate = delegate
-    c.logLevel = .debug
+    c.delegateQueue = self.queue
+    c.logLevel = .warning
     c.autoReconnect = reconnect
     // CocoaMQTT's default maxAutoReconnectTimeInterval is 128s; the 1→2→4→8→
     // 16→32→64→128s backoff means a socket dropped in background can take
@@ -350,42 +355,51 @@ public class MqttClientImpl : NSObject {
     c.maxAutoReconnectTimeInterval = 5
     session.client = c
     session.delegate = delegate
-    _ = c.connect()
-    resolve(nil)
+    self.queue.async {
+      delegate.pendingConnect = PendingPromise(resolve: resolve, reject: reject)
+      if !c.connect() {
+        delegate.pendingConnect = nil
+        reject("ERROR_CONNECTION", "failed to open the connection", nil)
+      }
+    }
   }
 
   @objc(isConnected:resolve:reject:)
   public func isConnected(handle: String, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
-    os_log("MqttClient: isConnected")
     guard let client = self.sessions[handle]?.client else {
       resolve(false)
       return
     }
-    var isConnected: Bool
-    let connectionState = client.connState
-    switch connectionState {
-    case .connected:
-      isConnected = true
-    case .connecting:
-      isConnected = false
-    case .disconnected:
-      isConnected = false
-    default:
-      isConnected = false
-    }
-    resolve(isConnected)
+    resolve(client.connState == .connected)
   }
 
-  @objc(disconnect:)
-  public func disconnect(handle: String) -> Void {
+  @objc(disconnect:resolve:reject:)
+  public func disconnect(handle: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) -> Void {
     os_log("MqttClient: disconnecting")
-    if let session = self.sessions.removeValue(forKey: handle) {
-      session.client?.disconnect()
-      // Removing the entry releases the cached certArray and SessionDelegate
-      // along with the client. Reconnecting on the same JS instance therefore
-      // requires setIdentity/loadIdentity to be called again for
-      // identity-based auth.
+    // Removing the entry releases the cached certArray along with the
+    // client. Reconnecting on the same JS instance therefore requires
+    // setIdentity/loadIdentity to be called again for identity-based auth.
+    guard let session = self.sessions.removeValue(forKey: handle),
+          let client = session.client,
+          let delegate = session.delegate else {
+      resolve(nil)
+      return
+    }
+    self.queue.async {
+      guard client.connState == .connected || client.connState == .connecting else {
+        // No socket to close: CocoaMQTT would never report back.
+        delegate.rejectPendingOperations(code: "NO_CONNECTION", message: "disconnected")
+        resolve(nil)
+        return
+      }
+      // Keeps the session alive until the socket reports it is closed.
+      delegate.closingSession = session
+      delegate.pendingDisconnect = PendingPromise(resolve: resolve, reject: reject)
+      client.disconnect()
+      self.queue.asyncAfter(deadline: .now() + Self.DISCONNECT_TIMEOUT) {
+        delegate.completeDisconnect()
+      }
     }
   }
 
@@ -400,28 +414,48 @@ public class MqttClientImpl : NSObject {
   }
 
   @objc(publish:topic:payload:resolve:reject:)
-  public func publish(handle: String, topic: String, payload: NSArray, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+  public func publish(handle: String, topic: String, payload: NSArray, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) -> Void
   {
-    os_log("MqttClient: publishing to %s", topic)
-    guard let client = self.sessions[handle]?.client else {
+    guard let session = self.sessions[handle], let client = session.client, let delegate = session.delegate else {
       reject("NO_CONNECTION", "no MQTT connection", nil)
       return
     }
-    client.publish(CocoaMQTTMessage(topic: topic, payload: payload as! [UInt8], retained: true))
-    resolve(nil)
+    guard let bytes = payload as? [UInt8] else {
+      reject("RANGE_ERROR", "payload must be an array of bytes", nil)
+      return
+    }
+    let message = CocoaMQTTMessage(topic: topic, payload: bytes, qos: .qos1, retained: false)
+    self.queue.async {
+      guard client.connState == .connected else {
+        reject("ERROR_PUBLISH", "client is not connected", nil)
+        return
+      }
+      let msgid = client.publish(message)
+      guard msgid > 0 else {
+        reject("ERROR_PUBLISH", "the outgoing message queue is full", nil)
+        return
+      }
+      // Resolved by the broker's PUBACK.
+      delegate.pendingPublishes[UInt16(msgid)] = PendingPromise(resolve: resolve, reject: reject)
+    }
   }
 
   @objc(subscribe:topic:resolve:reject:)
-  public func subscribe(handle: String, topic: String, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+  public func subscribe(handle: String, topic: String, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) -> Void
   {
-    os_log("MqttClient: subscribing %s", topic)
-    guard let client = self.sessions[handle]?.client else {
+    guard let session = self.sessions[handle], let client = session.client, let delegate = session.delegate else {
       reject("NO_CONNECTION", "no MQTT connection", nil)
       return
     }
-    client.subscribe(topic)
-    // TODO: subscription has not been done
-    resolve(nil)
+    self.queue.async {
+      guard client.connState == .connected else {
+        reject("NO_CONNECTION", "client is not connected", nil)
+        return
+      }
+      // Resolved by the broker's SUBACK.
+      delegate.pendingSubscribes[topic, default: []].append(PendingPromise(resolve: resolve, reject: reject))
+      client.subscribe(topic, qos: .qos1)
+    }
   }
 
   func notifyEvent(handle: String, eventName: String) -> Void {
@@ -443,29 +477,70 @@ public class MqttClientImpl : NSObject {
   }
 }
 
+struct PendingPromise {
+  let resolve: RCTPromiseResolveBlock
+  let reject: RCTPromiseRejectBlock
+}
+
 // A per-session CocoaMQTTDelegate: each session installs its own instance so
-// the delegate callbacks know which JS-side handle to route events to.
+// the delegate callbacks know which JS-side handle to route events to. It
+// also holds the promises waiting for a broker acknowledgement. Every member
+// is only touched on MqttClientImpl.queue, CocoaMQTT's delegate queue.
 class SessionDelegate : NSObject, CocoaMQTTDelegate {
   weak var module: MqttClientImpl?
   let handle: String
+
+  var pendingConnect: PendingPromise?
+  var pendingDisconnect: PendingPromise?
+  var pendingPublishes: [UInt16: PendingPromise] = [:]
+  var pendingSubscribes: [String: [PendingPromise]] = [:]
+  var closingSession: MqttClientImpl.Session?
 
   init(module: MqttClientImpl, handle: String) {
     self.module = module
     self.handle = handle
   }
 
+  func rejectPendingOperations(code: String, message: String) {
+    for (_, promise) in self.pendingPublishes {
+      promise.reject(code, message, nil)
+    }
+    self.pendingPublishes.removeAll()
+    for (_, promises) in self.pendingSubscribes {
+      promises.forEach { $0.reject(code, message, nil) }
+    }
+    self.pendingSubscribes.removeAll()
+  }
+
+  func completeDisconnect() {
+    guard let promise = self.pendingDisconnect else { return }
+    self.pendingDisconnect = nil
+    self.closingSession = nil
+    self.rejectPendingOperations(code: "NO_CONNECTION", message: "disconnected")
+    promise.resolve(nil)
+  }
+
   func mqtt(_ mqtt: CocoaMQTT, didConnectAck ack: CocoaMQTTConnAck) {
     os_log("MqttClient: didConnectAck=%s", "\(ack)")
+    let pending = self.pendingConnect
+    self.pendingConnect = nil
     if ack == .accept {
+      pending?.resolve(nil)
       self.module?.notifyEvent(handle: self.handle, eventName: "connected")
+      return
+    }
+    let code: String
+    switch ack {
+    case .notAuthorized, .badUsernameOrPassword:
+      code = "ERROR_NOT_AUTHORIZED"
+    default:
+      code = "ERROR_CONNECTION"
+    }
+    // A rejected connect() reports through its promise, a refused
+    // reconnection through `got-error`.
+    if let pending = pending {
+      pending.reject(code, "\(ack)", nil)
     } else {
-      let code: String
-      switch ack {
-      case .notAuthorized, .badUsernameOrPassword:
-        code = "ERROR_NOT_AUTHORIZED"
-      default:
-        code = "ERROR_CONNECTION"
-      }
       self.module?.notifyError(handle: self.handle, code: code, message: "\(ack)")
     }
   }
@@ -476,16 +551,14 @@ class SessionDelegate : NSObject, CocoaMQTTDelegate {
 
   func mqtt(_ mqtt: CocoaMQTT, didPublishMessage message: CocoaMQTTMessage, id: UInt16)
   {
-    os_log("MqttClient: didPublishMessage=%s", message.string ?? "")
   }
 
   func mqtt(_ mqtt: CocoaMQTT, didPublishAck id: UInt16) {
-    os_log("MqttClient: didPublishAck=%d", id)
+    self.pendingPublishes.removeValue(forKey: id)?.resolve(nil)
   }
 
   func mqtt(_ mqtt: CocoaMQTT, didReceiveMessage message: CocoaMQTTMessage, id: UInt16)
   {
-    os_log("MqttClient: didReceiveMessage=%s", message.string ?? "")
     let event: [String: Any] = [
       "topic": message.topic,
       "payload": message.payload
@@ -494,11 +567,17 @@ class SessionDelegate : NSObject, CocoaMQTTDelegate {
   }
 
   func mqtt(_ mqtt: CocoaMQTT, didSubscribeTopics success: NSDictionary, failed: [String]) {
-    os_log("MqttClient: didSubscribeTopic=%s", "\(success)")
+    for case let topic as String in success.allKeys {
+      self.pendingSubscribes.removeValue(forKey: topic)?.forEach { $0.resolve(nil) }
+    }
+    for topic in failed {
+      self.pendingSubscribes.removeValue(forKey: topic)?.forEach {
+        $0.reject("ERROR_SUBSCRIBE", "the broker refused the subscription to \(topic)", nil)
+      }
+    }
   }
 
   func mqtt(_ mqtt: CocoaMQTT, didUnsubscribeTopics topics: [String]) {
-    os_log("MqttClient: didUnsubscribeTopic=%s", topics)
   }
 
   func mqtt(_ mqtt: CocoaMQTT, didReceive trust: SecTrust, completionHandler: @escaping (Bool) -> Void) {
@@ -559,15 +638,24 @@ class SessionDelegate : NSObject, CocoaMQTTDelegate {
   }
 
   func mqttDidPing(_ mqtt: CocoaMQTT) {
-    os_log("MqttClient: didPing")
   }
 
   func mqttDidReceivePong(_ mqtt: CocoaMQTT) {
-    os_log("MqttClient: didReceivePong")
   }
 
   func mqttDidDisconnect(_ mqtt: CocoaMQTT, withError err: Error?) {
     os_log("MqttClient: didDisconnect")
+    if self.pendingDisconnect != nil {
+      self.completeDisconnect()
+      self.module?.notifyEvent(handle: self.handle, eventName: "disconnected")
+      return
+    }
+    self.rejectPendingOperations(code: "NO_CONNECTION", message: "connection lost")
+    if let pending = self.pendingConnect {
+      self.pendingConnect = nil
+      pending.reject("ERROR_CONNECTION", err.map { "\($0)" } ?? "connection closed", err)
+      return
+    }
     if err != nil {
       self.module?.notifyError(handle: self.handle, code: "ERROR_CONNECTION", message: "\(err!)")
     } else {
