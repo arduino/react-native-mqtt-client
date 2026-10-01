@@ -291,8 +291,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             // PipedInputStream is initialised once in the constructor and
             // start() is not idempotent, so the retry throws
             // IOException: Already connected. Pinning the version disables
-            // the fallback and surfaces the original failure to JS, which
-            // arduino-iot-js retries at a higher level.
+            // the fallback and surfaces the original failure to the caller.
             connectOptions.mqttVersion = MqttConnectOptions.MQTT_VERSION_3_1_1
             Log.d(NAME, "connecting to the broker")
             val token = client.connect(connectOptions)
