@@ -59,6 +59,11 @@ jobs:
 
       - name: Publish NPM Package
         run: |
-          npm publish --provenance --access public
+          # A prerelease (e.g. 1.2.0-rc.0) must not become `latest`.
+          if [[ "${{ steps.extract_version.outputs.version }}" == *-* ]]; then
+            npm publish --provenance --access public --tag next
+          else
+            npm publish --provenance --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
