@@ -277,8 +277,9 @@ export class MqttClient {
  * certificate signing request for it, to obtain the certificate later
  * passed to `setIdentity`.
  *
- * The private key never leaves secure hardware (Secure Enclave on iOS,
- * Android Keystore). It is stored under `keyTag` on Android and under
+ * The private key is never exported: it lives in the Secure Enclave on iOS
+ * and in the Android Keystore, hardware-backed where the device supports
+ * it, on Android. It is stored under `keyTag` on Android and under
  * `<keyTag>.private` on iOS, the value `setIdentity` then takes as `keyTag`.
  * Any key previously stored under the same tag is deleted first.
  *

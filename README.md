@@ -10,7 +10,8 @@ MQTT client for React Native application.
   - [Android KeyStore](https://developer.android.com/training/articles/keystore#UsingAndroidKeyStore) on Android
   - [Default keychain](https://developer.apple.com/documentation/security/keychain_services/keychains) on iOS
 - Key pair and certificate signing request generated on the device, so the
-  private key never leaves secure hardware (Secure Enclave on iOS).
+  private key is never exported (Secure Enclave on iOS, Android Keystore on
+  Android, hardware-backed where the device supports it).
 - Username/password connections over TCP, TLS or WebSocket.
 
 ## Requirements

@@ -11,7 +11,8 @@ import java.security.spec.ECGenParameterSpec
 
 /**
  * Builds a PKCS#10 certificate signing request for an EC P-256 key generated
- * in the Android key store, so the private key never leaves secure hardware.
+ * in the Android key store, so the private key is never exported. Hardware
+ * backing depends on the device.
  */
 object CertificateSigningRequest {
     // 2.5.4.3
