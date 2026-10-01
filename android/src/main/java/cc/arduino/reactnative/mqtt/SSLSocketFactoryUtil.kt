@@ -1,16 +1,21 @@
-package com.github.emotokcak.reactnative.mqtt
+package cc.arduino.reactnative.mqtt
 
-import android.util.Log
+import java.net.Socket
 import java.security.KeyStore
+import java.security.Principal
 import java.security.PrivateKey
+import java.security.cert.X509Certificate
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509ExtendedKeyManager
+import javax.net.ssl.X509KeyManager
 
 /** Utility to configures an `SSLSocketFactory`. */
 object SSLSocketFactoryUtil {
-    private const val SSL_PROTOCOL: String = "TLSv1.2"
+    private const val SSL_PROTOCOL: String = "TLS"
 
     private const val PASSWORD: String = ""
 
@@ -86,10 +91,6 @@ object SSLSocketFactoryUtil {
         // https://developer.android.com/training/articles/keystore#UsingAndroidKeyStore
         val androidKeyStore = KeyStore.getInstance("AndroidKeyStore")
         androidKeyStore.load(null)
-        Log.d(
-                "SSLSocketFactoryUtil",
-                "aliases: ${androidKeyStore.aliases().toList()}"
-        )
         // Due to a bug with Android 12 https://issuetracker.google.com/issues/197556146?pli=1
         // we need to pass the same keyTag string to the alias parameter
         // that we use to load the private key from keystore.
@@ -100,72 +101,96 @@ object SSLSocketFactoryUtil {
                 arrayOf(clientCert)
         )
         androidKeyStore.setCertificateEntry(caCertAlias, rootCaCert)
-        return this.createSocketFactoryFromKeyStore(androidKeyStore)
+        return this.createSocketFactoryFromAndroidKeyStore(keyTag, caCertAlias)
     }
 
     /**
-     * Creates an `SSLSocketFactory` from the Android key store.
+     * Creates an `SSLSocketFactory` from the identity stored in the Android
+     * key store under `keyAlias`, trusting only the root certificate stored
+     * under `caCertAlias`.
      *
-     * @return
+     * Other identities in the key store are never presented to the broker.
      *
-     *   `SSLSocketFactory` created from the Android key store.
+     * @throws IllegalStateException
      *
-     * @throws CertificateException
-     *
-     * @throws IOException
-     *
-     * @throws KeyManagementException
-     *
-     * @throws KeyStoreException
-     *
-     * @throws NoSuchAlgorithmException
-     *
-     * @throws UnrecoverableKeyException
+     *   If either entry is missing.
      */
     @JvmStatic
-    fun createSocketFactoryFromAndroidKeyStore(): SSLSocketFactory {
+    fun createSocketFactoryFromAndroidKeyStore(
+            keyAlias: String,
+            caCertAlias: String
+    ): SSLSocketFactory {
         val androidKeyStore = KeyStore.getInstance("AndroidKeyStore")
         androidKeyStore.load(null)
-        return this.createSocketFactoryFromKeyStore(androidKeyStore)
-    }
+        val rootCaCert = androidKeyStore.getCertificate(caCertAlias)
+                ?: throw IllegalStateException("no root certificate is stored as $caCertAlias")
+        if (!androidKeyStore.isKeyEntry(keyAlias)) {
+            throw IllegalStateException("no private key is stored as $keyAlias")
+        }
 
-    /**
-     * Creates an `SSLSocketFactory` from a given key store.
-     *
-     * @param keyStore
-     *
-     *   `KeyStore` containing a necessary CA certificate, certificate and
-     *   private key.
-     *
-     * @return
-     *
-     *   `SSLSocketFactory` created from `keyStore`.
-     *
-     * @throws KeyManagementException
-     *
-     * @throws KeyStoreException
-     *
-     * @throws NoSuchAlgorithmException
-     *
-     * @throws UnrecoverableKeyException
-     */
-    private fun createSocketFactoryFromKeyStore(keyStore: KeyStore):
-            SSLSocketFactory {
-        val sslContext = SSLContext.getInstance(SSL_PROTOCOL)
+        val trustStore = KeyStore.getInstance(KeyStore.getDefaultType())
+        trustStore.load(null)
+        trustStore.setCertificateEntry(caCertAlias, rootCaCert)
         val trustManagerFactory = TrustManagerFactory.getInstance(
                 TrustManagerFactory.getDefaultAlgorithm()
         )
-        trustManagerFactory.init(keyStore)
+        trustManagerFactory.init(trustStore)
+
         val keyManagerFactory = KeyManagerFactory.getInstance(
                 KeyManagerFactory.getDefaultAlgorithm()
         )
-        keyManagerFactory.init(keyStore, PASSWORD.toCharArray())
+        keyManagerFactory.init(androidKeyStore, PASSWORD.toCharArray())
+        val keyManagers = keyManagerFactory.keyManagers
+                .filterIsInstance<X509KeyManager>()
+                .map { SingleAliasKeyManager(it, keyAlias) }
+
+        val sslContext = SSLContext.getInstance(SSL_PROTOCOL)
         sslContext.init(
-                keyManagerFactory.getKeyManagers(),
-                trustManagerFactory.getTrustManagers(),
+                keyManagers.toTypedArray(),
+                trustManagerFactory.trustManagers,
                 null // default SecureRandom
         )
-        return sslContext.getSocketFactory()
+        return sslContext.socketFactory
+    }
+
+    // Presents the identity stored under `alias` and no other.
+    private class SingleAliasKeyManager(
+            private val delegate: X509KeyManager,
+            private val alias: String
+    ) : X509ExtendedKeyManager() {
+        override fun chooseClientAlias(
+                keyType: Array<out String>?,
+                issuers: Array<out Principal>?,
+                socket: Socket?
+        ): String = alias
+
+        override fun chooseEngineClientAlias(
+                keyType: Array<out String>?,
+                issuers: Array<out Principal>?,
+                engine: SSLEngine?
+        ): String = alias
+
+        override fun getClientAliases(
+                keyType: String?,
+                issuers: Array<out Principal>?
+        ): Array<String> = arrayOf(alias)
+
+        override fun chooseServerAlias(
+                keyType: String?,
+                issuers: Array<out Principal>?,
+                socket: Socket?
+        ): String? = null
+
+        override fun getServerAliases(
+                keyType: String?,
+                issuers: Array<out Principal>?
+        ): Array<String>? = null
+
+        override fun getCertificateChain(alias: String?): Array<X509Certificate>? =
+                delegate.getCertificateChain(alias)
+
+        override fun getPrivateKey(alias: String?): PrivateKey? =
+                delegate.getPrivateKey(alias)
     }
 
     /**
@@ -219,6 +244,16 @@ object SSLSocketFactoryUtil {
      *
      * @throws NoSuchAlgorithmException
      */
+    fun deleteAndroidKeyStoreEntries(prefixes: List<String>, keep: List<String>): Int {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore")
+        keyStore.load(null)
+        val doomed = keyStore.aliases().toList().filter { alias ->
+            prefixes.any { alias.startsWith(it) } && keep.none { alias.startsWith(it) }
+        }
+        doomed.forEach { keyStore.deleteEntry(it) }
+        return doomed.size
+    }
+
     fun isIdentityStoredInAndroidKeyStore(
             caCertAlias: String,
             keyAlias: String
