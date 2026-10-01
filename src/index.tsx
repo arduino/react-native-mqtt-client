@@ -273,6 +273,55 @@ export class MqttClient {
 }
 
 /**
+ * Generates an EC P-256 key pair in the device key store and returns a
+ * certificate signing request for it, to obtain the certificate later
+ * passed to `setIdentity`.
+ *
+ * The private key never leaves secure hardware (Secure Enclave on iOS,
+ * Android Keystore). It is stored under `keyTag` on Android and under
+ * `<keyTag>.private` on iOS, the value `setIdentity` then takes as `keyTag`.
+ * Any key previously stored under the same tag is deleted first.
+ *
+ * @param commonName
+ *
+ *   Common name (CN) of the CSR subject.
+ *
+ * @param keyTag
+ *
+ *   Tag of the key pair in the key store.
+ *
+ * @return Promise<string>
+ *
+ *   Resolved to the PEM representation of the CSR.
+ */
+export function generateCSR(
+  commonName: string,
+  keyTag: string,
+): Promise<string> {
+  return MqttNativeModule.generateCSR(commonName, keyTag);
+}
+
+/**
+ * Deletes the keys and certificates stored in the device key store whose
+ * name starts with one of `prefixes` and with none of `keep`.
+ *
+ * The name is the alias on Android, and the application tag of a key or the
+ * label of a certificate on iOS. Keys left behind by identities that are no
+ * longer used, or restored from another device's backup, are only ever
+ * removed this way.
+ *
+ * @return Promise<number>
+ *
+ *   Resolved to the number of deleted entries.
+ */
+export function deleteIdentities(
+  prefixes: string[],
+  keep: string[] = [],
+): Promise<number> {
+  return MqttNativeModule.deleteIdentities(prefixes, keep);
+}
+
+/**
  * `code` of a rejected promise or of a `got-error` event.
  *
  * A method returning a promise reports its failure only through that

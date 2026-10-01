@@ -131,6 +131,22 @@ RCT_EXPORT_MODULE()
   [_impl subscribe:handle topic:topic resolve:resolve reject:reject];
 }
 
+- (void)generateCSR:(NSString *)commonName
+             keyTag:(NSString *)keyTag
+            resolve:(RCTPromiseResolveBlock)resolve
+             reject:(RCTPromiseRejectBlock)reject
+{
+  [_impl generateCSR:commonName keyTag:keyTag resolve:resolve reject:reject];
+}
+
+- (void)deleteIdentities:(NSArray *)prefixes
+                    keep:(NSArray *)keep
+                 resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject
+{
+  [_impl deleteIdentities:prefixes keep:keep resolve:resolve reject:reject];
+}
+
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
     (const facebook::react::ObjCTurboModule::InitParams &)params
 {

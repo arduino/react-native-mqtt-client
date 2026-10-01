@@ -27,6 +27,8 @@ export interface Spec extends TurboModule {
   disconnect(handle: string): Promise<void>;
   publish(handle: string, topic: string, payload: number[]): Promise<void>;
   subscribe(handle: string, topic: string): Promise<void>;
+  generateCSR(commonName: string, keyTag: string): Promise<string>;
+  deleteIdentities(prefixes: string[], keep: string[]): Promise<number>;
 
   // Required by NativeEventEmitter.
   addListener(eventName: string): void;

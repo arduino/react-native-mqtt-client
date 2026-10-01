@@ -108,8 +108,10 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     override fun loadIdentity(handle: String, options: ReadableMap?, promise: Promise) {
         try {
             val session = this.sessionFor(handle)
-            session.socketFactory =
-                    SSLSocketFactoryUtil.createSocketFactoryFromAndroidKeyStore()
+            session.socketFactory = SSLSocketFactoryUtil.createSocketFactoryFromAndroidKeyStore(
+                    keyAlias = options?.getOptionalString("keyAlias") ?: DEFAULT_KEY_ALIAS,
+                    caCertAlias = options?.getOptionalString("caCertAlias") ?: DEFAULT_CA_CERT_ALIAS
+            )
             promise.resolve(null)
             return
         } catch (e: Exception) {
@@ -120,14 +122,35 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             )
             promise.reject("INVALID_IDENTITY", e)
             return
-        } catch (e: IllegalArgumentException) {
-            Log.e(
-                    NAME,
-                    "failed to load an identity from the Android key store",
-                    e
-            )
+        }
+    }
+
+    /**
+     * Generates a key pair under `keyTag` and resolves to a PEM CSR for it.
+     */
+    override fun generateCSR(commonName: String, keyTag: String, promise: Promise) {
+        try {
+            promise.resolve(CertificateSigningRequest.generate(commonName, keyTag))
+        } catch (e: Exception) {
+            Log.e(NAME, "failed to generate a CSR", e)
             promise.reject("INVALID_IDENTITY", e)
-            return
+        }
+    }
+
+    /**
+     * Deletes the key store entries whose alias starts with one of
+     * `prefixes` and with none of `keep`.
+     */
+    override fun deleteIdentities(prefixes: ReadableArray, keep: ReadableArray, promise: Promise) {
+        try {
+            val deleted = SSLSocketFactoryUtil.deleteAndroidKeyStoreEntries(
+                    prefixes.toArrayList().map { it.toString() },
+                    keep.toArrayList().map { it.toString() }
+            )
+            promise.resolve(deleted)
+        } catch (e: Exception) {
+            Log.e(NAME, "failed to delete identities", e)
+            promise.reject("ILLEGAL_STATE", e)
         }
     }
 
