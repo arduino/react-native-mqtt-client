@@ -15,8 +15,10 @@ func loadX509Certificate(fromPem: String) -> SecCertificate? {
   return SecCertificateCreateWithData(nil, data)
 }
 
-@objc(MqttClient)
-class MqttClient : RCTEventEmitter {
+// Implementation of the `MqttClient` TurboModule. MqttClient.mm adopts the
+// codegen spec and forwards every call here; events go out through `emit`.
+@objc(MqttClientImpl)
+public class MqttClientImpl : NSObject {
   static let DEFAULT_KEY_APPLICATION_TAG = "com.github.emoto-kc-ak.react-native-mqtt-client"
 
   static let DEFAULT_CA_CERT_LABEL = "Root certificate of an MQTT broker"
@@ -36,32 +38,7 @@ class MqttClient : RCTEventEmitter {
 
   var sessions: [String: Session] = [:]
 
-  var hasListeners: Bool = false
-
-  static override func moduleName() -> String! {
-    return "MqttClient"
-  }
-
-  static override func requiresMainQueueSetup() -> Bool {
-    return false
-  }
-
-  override func supportedEvents() -> [String] {
-    return [
-      "connected",
-      "disconnected",
-      "received-message",
-      "got-error"
-    ]
-  }
-
-  override func startObserving() -> Void {
-    self.hasListeners = true
-  }
-
-  override func stopObserving() -> Void {
-    self.hasListeners = false
-  }
+  @objc public var emit: ((String, [String: Any]) -> Void)?
 
   private func session(forHandle handle: String) -> Session {
     if let existing = self.sessions[handle] {
@@ -99,7 +76,7 @@ class MqttClient : RCTEventEmitter {
   }
 
   @objc(setIdentity:params:resolve:reject:)
-  func setIdentity(handle: String, params: NSDictionary, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) -> Void
+  public func setIdentity(handle: String, params: NSDictionary, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) -> Void
   {
     let session = self.session(forHandle: handle)
     let caCertPem: String = RCTConvert.nsString(params["caCertPem"])
@@ -185,7 +162,7 @@ class MqttClient : RCTEventEmitter {
   }
 
   @objc(loadIdentity:options:resolve:reject:)
-  func loadIdentity(handle: String, options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+  public func loadIdentity(handle: String, options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
     let session = self.session(forHandle: handle)
     let caCertLabel: String = RCTConvert.nsString(options?["caCertLabel"]) ?? Self.DEFAULT_CA_CERT_LABEL
@@ -227,7 +204,7 @@ class MqttClient : RCTEventEmitter {
   }
 
   @objc(resetIdentity:options:resolve:reject:)
-  func resetIdentity(handle: String, options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+  public func resetIdentity(handle: String, options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
     let session = self.session(forHandle: handle)
     let caCertLabel: String = RCTConvert.nsString(options?["caCertLabel"]) ?? Self.DEFAULT_CA_CERT_LABEL
@@ -268,7 +245,7 @@ class MqttClient : RCTEventEmitter {
   }
 
   @objc(isIdentityStored:options:resolve:reject:)
-  func isIdentityStored(handle: String, options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+  public func isIdentityStored(handle: String, options: NSDictionary?, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
     _ = self.session(forHandle: handle)
     let caCertLabel: String = RCTConvert.nsString(options?["caCertLabel"]) ?? Self.DEFAULT_CA_CERT_LABEL
@@ -319,7 +296,7 @@ class MqttClient : RCTEventEmitter {
   }
 
   @objc(connect:params:resolve:reject:)
-  func connect(handle: String, params: NSDictionary, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+  public func connect(handle: String, params: NSDictionary, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
     let session = self.session(forHandle: handle)
     let username = RCTConvert.nsString(params["username"])
     let password = RCTConvert.nsString(params["password"])
@@ -378,7 +355,7 @@ class MqttClient : RCTEventEmitter {
   }
 
   @objc(isConnected:resolve:reject:)
-  func isConnected(handle: String, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+  public func isConnected(handle: String, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
     os_log("MqttClient: isConnected")
     guard let client = self.sessions[handle]?.client else {
@@ -401,7 +378,7 @@ class MqttClient : RCTEventEmitter {
   }
 
   @objc(disconnect:)
-  func disconnect(handle: String) -> Void {
+  public func disconnect(handle: String) -> Void {
     os_log("MqttClient: disconnecting")
     if let session = self.sessions.removeValue(forKey: handle) {
       session.client?.disconnect()
@@ -412,8 +389,7 @@ class MqttClient : RCTEventEmitter {
     }
   }
 
-  // https://stackoverflow.com/a/38161889
-  override func invalidate() -> Void {
+  @objc public func invalidate() -> Void {
     os_log("MqttClient: invalidating")
     for (_, session) in self.sessions {
       session.client?.disconnect()
@@ -424,7 +400,7 @@ class MqttClient : RCTEventEmitter {
   }
 
   @objc(publish:topic:payload:resolve:reject:)
-  func publish(handle: String, topic: String, payload: NSArray, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+  public func publish(handle: String, topic: String, payload: NSArray, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
     os_log("MqttClient: publishing to %s", topic)
     guard let client = self.sessions[handle]?.client else {
@@ -436,7 +412,7 @@ class MqttClient : RCTEventEmitter {
   }
 
   @objc(subscribe:topic:resolve:reject:)
-  func subscribe(handle: String, topic: String, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
+  public func subscribe(handle: String, topic: String, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) -> Void
   {
     os_log("MqttClient: subscribing %s", topic)
     guard let client = self.sessions[handle]?.client else {
@@ -453,10 +429,9 @@ class MqttClient : RCTEventEmitter {
   }
 
   func notifyEvent(handle: String, eventName: String, arg: [String: Any]?) -> Void {
-    guard self.hasListeners else { return }
     var body: [String: Any] = arg ?? [:]
     body[Self.HANDLE_KEY] = handle
-    self.sendEvent(withName: eventName, body: body)
+    self.emit?(eventName, body)
   }
 
   func notifyError(handle: String, code: String, message: String) -> Void {
@@ -471,10 +446,10 @@ class MqttClient : RCTEventEmitter {
 // A per-session CocoaMQTTDelegate: each session installs its own instance so
 // the delegate callbacks know which JS-side handle to route events to.
 class SessionDelegate : NSObject, CocoaMQTTDelegate {
-  weak var module: MqttClient?
+  weak var module: MqttClientImpl?
   let handle: String
 
-  init(module: MqttClient, handle: String) {
+  init(module: MqttClientImpl, handle: String) {
     self.module = module
     self.handle = handle
   }

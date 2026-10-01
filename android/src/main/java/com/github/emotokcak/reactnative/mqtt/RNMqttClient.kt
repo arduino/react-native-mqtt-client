@@ -2,7 +2,7 @@ package com.github.emotokcak.reactnative.mqtt
 
 import android.util.Log
 import com.facebook.react.bridge.*
-import com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter
+import com.facebook.react.module.annotations.ReactModule
 import info.mqtt.android.service.MqttAndroidClient
 import info.mqtt.android.service.MqttTraceHandler
 import org.eclipse.paho.client.mqttv3.*
@@ -19,8 +19,9 @@ import javax.net.ssl.SSLSocketFactory
  *
  * Powered by [Paho MQTT for Android](https://github.com/eclipse/paho.mqtt.android).
  */
+@ReactModule(name = RNMqttClient.NAME)
 class RNMqttClient(reactContext: ReactApplicationContext)
-    : ReactContextBaseJavaModule(reactContext) {
+    : NativeMqttClientSpec(reactContext) {
     companion object {
         /** Default alias for a root certificate in a key store. */
         const val DEFAULT_CA_CERT_ALIAS: String = "ca-certificate"
@@ -28,7 +29,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         /** Default alias for a private key in a key store. */
         const val DEFAULT_KEY_ALIAS: String = "private-key"
 
-        private const val NAME: String = "MqttClient"
+        const val NAME: String = NativeMqttClientSpec.NAME
 
         private const val PROTOCOL: String = "ssl"
 
@@ -71,9 +72,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         )
     }
 
-    override fun onCatalystInstanceDestroy() {
-        super.onCatalystInstanceDestroy()
-        Log.d(NAME, "onCatalystInstanceDestroy")
+    override fun invalidate() {
+        super.invalidate()
+        Log.d(NAME, "invalidate")
         for ((_, session) in this.sessions) {
             val client = session.client ?: continue
             try {
@@ -88,8 +89,6 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         this.sessions.clear()
     }
 
-    override fun getName(): String = NAME
-
     /**
      * Sets the identity for connection.
      *
@@ -97,8 +96,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
      * Android key store entries are still keyed by the user-supplied
      * `keyStoreOptions` and remain shared across all sessions.
      */
-    @ReactMethod
-    fun setIdentity(handle: String, params: ReadableMap, promise: Promise) {
+    override fun setIdentity(handle: String, params: ReadableMap, promise: Promise) {
         try {
             val session = this.sessionFor(handle)
             val keyStoreOptions: ReadableMap? =
@@ -126,8 +124,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     /**
      * Loads the identity stored in the Android key store.
      */
-    @ReactMethod
-    fun loadIdentity(handle: String, options: ReadableMap?, promise: Promise) {
+    override fun loadIdentity(handle: String, options: ReadableMap?, promise: Promise) {
         try {
             val session = this.sessionFor(handle)
             session.socketFactory =
@@ -156,8 +153,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     /**
      * Resets the identity stored in the key store.
      */
-    @ReactMethod
-    fun resetIdentity(handle: String, options: ReadableMap?, promise: Promise) {
+    override fun resetIdentity(handle: String, options: ReadableMap?, promise: Promise) {
         try {
             val session = this.sessionFor(handle)
             SSLSocketFactoryUtil.resetAndroidKeyStore(
@@ -182,8 +178,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
      * Returns whether an identity for connection is saved in the Android
      * key store.
      */
-    @ReactMethod
-    fun isIdentityStored(handle: String, options: ReadableMap?, promise: Promise) {
+    override fun isIdentityStored(handle: String, options: ReadableMap?, promise: Promise) {
         try {
             // Touch the session so the handle is materialised even before
             // setIdentity/loadIdentity is called.
@@ -208,8 +203,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     /**
      * Connects to an MQTT broker.
      */
-    @ReactMethod
-    fun connect(handle: String, params: ReadableMap, promise: Promise) {
+    override fun connect(handle: String, params: ReadableMap, promise: Promise) {
         val session = this.sessionFor(handle)
         // parses parameters
         val parsedParams: ConnectionParameters
@@ -366,8 +360,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     /**
      * Disconnects from the MQTT broker.
      */
-    @ReactMethod
-    fun disconnect(handle: String) {
+    override fun disconnect(handle: String) {
         // Remove the entry up-front so the cached socketFactory is released
         // along with the client. Reconnecting on the same JS instance
         // therefore requires setIdentity/loadIdentity to be called again for
@@ -426,8 +419,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     /**
      * Publishes given data to a specified topic.
      */
-    @ReactMethod
-    fun publish(handle: String, topic: String, payload: ReadableArray, promise: Promise) {
+    override fun publish(handle: String, topic: String, payload: ReadableArray, promise: Promise) {
         val client = this.sessions[handle]?.client
         if (client == null) {
             Log.w(NAME, "failed to publish. no MQTT connection")
@@ -481,8 +473,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     /**
      * Subscribes a specified topic.
      */
-    @ReactMethod
-    fun subscribe(handle: String, topic: String, promise: Promise) {
+    override fun subscribe(handle: String, topic: String, promise: Promise) {
         val client = this.sessions[handle]?.client
         if (client == null) {
             promise.reject("NO_CONNECTION", Exception("no MQTT connection"))
@@ -530,8 +521,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     /**
      * Determines if this client is currently connected to the server.
      */
-    @ReactMethod
-    fun isConnected(handle: String, promise: Promise) {
+    override fun isConnected(handle: String, promise: Promise) {
         val client = this.sessions[handle]?.client
         if (client == null) {
             promise.resolve(false)
@@ -550,6 +540,12 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             return
         }
     }
+
+    // NativeEventEmitter calls these; events are emitted regardless of
+    // listeners, so there is nothing to track.
+    override fun addListener(eventName: String) {}
+
+    override fun removeListeners(count: Double) {}
 
     // Notifies a `got-error` event.
     private fun notifyError(handle: String, code: String, cause: Throwable?) {
@@ -603,9 +599,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         Log.d(NAME, "notifying event $eventName for $handle")
         val body = params ?: Arguments.createMap()
         body.putString(HANDLE_KEY, handle)
-        this.getReactApplicationContext()
-                .getJSModule(RCTDeviceEventEmitter::class.java)
-                .emit(eventName, body)
+        this.getReactApplicationContext().emitDeviceEvent(eventName, body)
     }
 
     // Parameters for connection.

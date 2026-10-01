@@ -1,10 +1,6 @@
-import {
-  EmitterSubscription,
-  NativeEventEmitter,
-  NativeModules,
-} from 'react-native';
+import {EmitterSubscription, NativeEventEmitter} from 'react-native';
 
-const {MqttClient: MqttNativeModule} = NativeModules;
+import MqttNativeModule from './NativeMqttClient';
 
 const eventBridge = new NativeEventEmitter(MqttNativeModule);
 
