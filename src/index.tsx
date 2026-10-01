@@ -1,10 +1,6 @@
-import {
-  EmitterSubscription,
-  NativeEventEmitter,
-  NativeModules,
-} from 'react-native';
+import {EmitterSubscription, NativeEventEmitter} from 'react-native';
 
-const {MqttClient: MqttNativeModule} = NativeModules;
+import MqttNativeModule from './NativeMqttClient';
 
 const eventBridge = new NativeEventEmitter(MqttNativeModule);
 
@@ -180,9 +176,14 @@ export class MqttClient {
    * `loadIdentity` again before `connect`.
    *
    * @function disconnect
+   *
+   * @return Promise<void>
+   *
+   *   Resolved when the connection is closed, or right away if this instance
+   *   is not connected.
    */
-  disconnect() {
-    MqttNativeModule.disconnect(this._handle);
+  disconnect(): Promise<void> {
+    return MqttNativeModule.disconnect(this._handle);
   }
 
   /**
@@ -196,7 +197,7 @@ export class MqttClient {
    *
    * @return Promise<void>
    *
-   *   Resolved when publishing has finished.
+   *   Resolved when the broker has acknowledged the message (QoS 1).
    */
   publish(topic: string, payload: number[]): Promise<void> {
     return MqttNativeModule.publish(this._handle, topic, payload);
@@ -213,7 +214,7 @@ export class MqttClient {
    *
    * @return {Promise<void>}
    *
-   *   Resolved when subscription has done.
+   *   Resolved when the broker has acknowledged the subscription.
    */
   subscribe(topic: string): Promise<void> {
     return MqttNativeModule.subscribe(this._handle, topic);
@@ -270,6 +271,76 @@ export class MqttClient {
     subscription.remove();
   }
 }
+
+/**
+ * Generates an EC P-256 key pair in the device key store and returns a
+ * certificate signing request for it, to obtain the certificate later
+ * passed to `setIdentity`.
+ *
+ * The private key is never exported: it lives in the Secure Enclave on iOS
+ * and in the Android Keystore, hardware-backed where the device supports
+ * it, on Android. It is stored under `keyTag` on Android and under
+ * `<keyTag>.private` on iOS, the value `setIdentity` then takes as `keyTag`.
+ * Any key previously stored under the same tag is deleted first.
+ *
+ * @param commonName
+ *
+ *   Common name (CN) of the CSR subject.
+ *
+ * @param keyTag
+ *
+ *   Tag of the key pair in the key store.
+ *
+ * @return Promise<string>
+ *
+ *   Resolved to the PEM representation of the CSR.
+ */
+export function generateCSR(
+  commonName: string,
+  keyTag: string,
+): Promise<string> {
+  return MqttNativeModule.generateCSR(commonName, keyTag);
+}
+
+/**
+ * Deletes the keys and certificates stored in the device key store whose
+ * name starts with one of `prefixes` and with none of `keep`.
+ *
+ * The name is the alias on Android, and the application tag of a key or the
+ * label of a certificate on iOS. Keys left behind by identities that are no
+ * longer used, or restored from another device's backup, are only ever
+ * removed this way.
+ *
+ * @return Promise<number>
+ *
+ *   Resolved to the number of deleted entries.
+ */
+export function deleteIdentities(
+  prefixes: string[],
+  keep: string[] = [],
+): Promise<number> {
+  return MqttNativeModule.deleteIdentities(prefixes, keep);
+}
+
+/**
+ * `code` of a rejected promise or of a `got-error` event.
+ *
+ * A method returning a promise reports its failure only through that
+ * promise; `got-error` carries the errors of the connection itself
+ * (connection lost, refused reconnection).
+ */
+export type MqttErrorCode =
+  | 'NO_CONNECTION'
+  | 'ERROR_CONFIG'
+  | 'ERROR_CONNECTION'
+  | 'ERROR_NOT_AUTHORIZED'
+  | 'ERROR_DISCONNECT'
+  | 'ERROR_PUBLISH'
+  | 'ERROR_SUBSCRIBE'
+  | 'ERROR_CHECK_CONNECTION'
+  | 'INVALID_IDENTITY'
+  | 'ILLEGAL_STATE'
+  | 'RANGE_ERROR';
 
 /**
  * Listener function.
