@@ -16,7 +16,14 @@
     "!lib/typescript/example",
     "!**/__tests__",
     "!**/__fixtures__",
-    "!**/__mocks__"
+    "!**/__mocks__",
+    "!android/build",
+    "!android/.gradle",
+    "!android/.idea",
+    "!android/local.properties",
+    "!ios/**/xcuserdata",
+    "!ios/*.xcodeproj",
+    "!ios/*.xcworkspace"
   ],
   "scripts": {
     "test": "jest",
