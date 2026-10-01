@@ -18,8 +18,9 @@ Pod::Spec.new do |s|
   s.source_files = "ios/**/*.{h,m,mm,swift}"
 
 
-  s.dependency "React"
   s.dependency "CocoaMQTT", "= 2.2.4"
   s.dependency "CocoaMQTT/WebSockets", "= 2.2.4"
   s.dependency "Starscream", "= 4.0.8"
+
+  install_modules_dependencies(s)
 end
