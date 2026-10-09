@@ -1,4 +1,4 @@
-package com.github.emotokcak.reactnative.mqtt
+package cc.arduino.reactnative.mqtt
 
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
