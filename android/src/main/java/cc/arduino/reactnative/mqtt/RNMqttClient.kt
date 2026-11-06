@@ -280,6 +280,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             }
             connectOptions.isCleanSession = true
             connectOptions.isAutomaticReconnect = parsedParams.reconnect
+            parsedParams.keepAlive?.let { connectOptions.keepAliveInterval = it }
             // Paho's default maxReconnectDelay is 128000ms; the 1→2→4→8→16→
             // 32→64→128s backoff means a socket dropped during Doze can take
             // ~45s+ to recover after foreground. Cap at 5s so reconnect
@@ -604,11 +605,16 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             val clientId: String,
             val reconnect: Boolean,
             val username: String? = null,
-            val password: String? = null
+            val password: String? = null,
+            val keepAlive: Int? = null
     ) {
         companion object {
             // Parses a given object from JavaScript.
             fun parseReadableMap(params: ReadableMap): ConnectionParameters {
+                val keepAlive = if (params.hasKey("keepAlive")) params.getInt("keepAlive") else null
+                require(keepAlive == null || keepAlive in 1..65535) {
+                    "keepAlive must be between 1 and 65535 seconds"
+                }
                 return ConnectionParameters(
                         url = if (params.hasKey("url")) params.getString("url") else null,
                         host = if (params.hasKey("host")) params.getString("host") else null,
@@ -616,7 +622,8 @@ class RNMqttClient(reactContext: ReactApplicationContext)
                         clientId = params.getRequiredString("clientId"),
                         reconnect = params.getRequiredBoolean("reconnect"),
                         username = if (params.hasKey("username")) params.getString("username") else null,
-                        password = if (params.hasKey("password")) params.getString("password") else null
+                        password = if (params.hasKey("password")) params.getString("password") else null,
+                        keepAlive = keepAlive
                 )
             }
         }
