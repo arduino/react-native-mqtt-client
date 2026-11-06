@@ -142,6 +142,15 @@ MqttClient.connect({
 });
 ```
 
+Both forms accept `keepAlive`, the seconds between keep-alive pings (1 to
+65535, 60 when omitted). A value out of range rejects with `RANGE_ERROR`.
+
+On Android a ping that goes unanswered closes the connection, so a shorter
+interval detects a silent network drop sooner, at the cost of more pings. On
+iOS `keepAlive` only sets how often the ping is sent: CocoaMQTT does not check
+that the broker answers it, so a silent drop is noticed only when the TCP
+connection gives up.
+
 ### Publishing a message
 
 `MqttClient.publish` publishes a message to an MQTT broker with QoS 1. The
