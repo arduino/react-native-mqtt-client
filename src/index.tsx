@@ -431,6 +431,12 @@ export type KeyStoreOptions = {
 export type BaseConnectionParameters = {
   clientId: string;
   reconnect: boolean;
+  /**
+   * Seconds between keep-alive pings, from 1 to 65535; 60 when omitted. On
+   * iOS it only sets the ping cadence: an unanswered ping does not close the
+   * connection.
+   */
+  keepAlive?: number;
 };
 
 /**

@@ -309,6 +309,14 @@ public class MqttClientImpl : NSObject {
     let password = RCTConvert.nsString(params["password"])
     let clientId: String = RCTConvert.nsString(params["clientId"])
     let reconnect: Bool = RCTConvert.bool(params["reconnect"])
+    var keepAlive: UInt16 = 60
+    if let value = params["keepAlive"] {
+      guard let seconds = (value as? NSNumber).flatMap({ UInt16(exactly: $0.doubleValue) }), seconds > 0 else {
+        reject("RANGE_ERROR", "keepAlive must be between 1 and 65535 seconds", nil)
+        return
+      }
+      keepAlive = seconds
+    }
 
     let usesCredentials = username != nil && password != nil
     let c: CocoaMQTT
@@ -347,7 +355,7 @@ public class MqttClientImpl : NSObject {
     c.allowUntrustCACertificate = !usesCredentials
     c.username = username ?? ""
     c.password = password ?? ""
-    c.keepAlive = 60
+    c.keepAlive = keepAlive
     let delegate = SessionDelegate(module: self, handle: handle)
     delegate.caCert = usesCredentials ? nil : session.caCert
     c.delegate = delegate
