@@ -23,9 +23,9 @@ TurboModule.
 
 This library wraps the following libraries,
 
-- [Paho MQTT Client for Android variant maintained by hannesa2](https://github.com/hannesa2/paho.mqtt.android) (Android)
+- [Eclipse Paho Java Client](https://github.com/eclipse-paho/paho.mqtt.java) (Android)
 
-  This library is forked as [emoto-kc-ak/paho.mqtt.android](https://github.com/emoto-kc-ak/paho.mqtt.android) to make Maven artifacts.
+  Used in-process: keep-alive pings run on Paho's own timer thread.
 
 - [CocoaMQTT](https://github.com/emqx/CocoaMQTT) (iOS)
 
@@ -345,7 +345,7 @@ platforms (`MqttErrorCode` in TypeScript):
 | `ERROR_NOT_AUTHORIZED`   | The broker refused the credentials.                                                         |
 | `ERROR_PUBLISH`          | The message could not be published.                                                         |
 | `ERROR_SUBSCRIBE`        | The broker refused the subscription.                                                        |
-| `ERROR_DISCONNECT`       | The client could not be disconnected (Android).                                             |
+| `ERROR_DISCONNECT`       | Not produced: `disconnect` always resolves.                                                 |
 | `ERROR_CHECK_CONNECTION` | The connection state could not be read (Android).                                           |
 | `INVALID_IDENTITY`       | The identity is missing, unusable on this device, or could not be stored or generated.      |
 | `ILLEGAL_STATE`          | The key store could not be read or changed.                                                 |

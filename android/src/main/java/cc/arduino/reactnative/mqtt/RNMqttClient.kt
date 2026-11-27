@@ -3,8 +3,8 @@ package cc.arduino.reactnative.mqtt
 import android.util.Log
 import com.facebook.react.bridge.*
 import com.facebook.react.module.annotations.ReactModule
-import info.mqtt.android.service.MqttAndroidClient
 import org.eclipse.paho.client.mqttv3.*
+import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import javax.net.ssl.SSLSocketFactory
 
 /**
@@ -16,7 +16,8 @@ import javax.net.ssl.SSLSocketFactory
  * it maintains a `handle -> Session` map so two JS instances can connect to
  * different brokers concurrently.
  *
- * Powered by [Paho MQTT for Android](https://github.com/eclipse/paho.mqtt.android).
+ * Powered by the [Paho MQTT Java client](https://github.com/eclipse-paho/paho.mqtt.java),
+ * used in-process: keepalive pings run on Paho's own timer thread.
  */
 @ReactModule(name = RNMqttClient.NAME)
 class RNMqttClient(reactContext: ReactApplicationContext)
@@ -38,7 +39,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     // Per-instance state. Keyed by the handle the JS wrapper allocates per
     // `new MqttClient()`.
     private class Session {
-        var client: MqttAndroidClient? = null
+        var client: MqttAsyncClient? = null
         var socketFactory: SSLSocketFactory? = null
     }
 
@@ -58,13 +59,7 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         Log.d(NAME, "invalidate")
         for ((_, session) in this.sessions) {
             val client = session.client ?: continue
-            try {
-                client.disconnect()
-            } catch (e: MqttException) {
-                Log.e(NAME, "failed to disconnect", e)
-            } catch (e: IllegalArgumentException) {
-                Log.e(NAME, "failed to disconnect", e)
-            }
+            releaseClient(client, null)
             session.client = null
         }
         this.sessions.clear()
@@ -230,10 +225,13 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         // initializes a client
         try {
             val brokerUri = parsedParams.url ?: "$PROTOCOL://${parsedParams.host}:${parsedParams.port}"
-            val client = MqttAndroidClient(
-                    this.getReactApplicationContext().getBaseContext(),
+            // In-memory persistence: sessions are clean, and Paho's default
+            // file persistence writes to the process working directory,
+            // which is not writable on Android.
+            val client = MqttAsyncClient(
                     brokerUri,
-                    parsedParams.clientId
+                    parsedParams.clientId,
+                    MemoryPersistence()
             )
             session.client = client
             client.setCallback(object : MqttCallbackExtended {
@@ -295,8 +293,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             // the fallback and surfaces the original failure to the caller.
             connectOptions.mqttVersion = MqttConnectOptions.MQTT_VERSION_3_1_1
             Log.d(NAME, "connecting to the broker")
-            val token = client.connect(connectOptions)
-            token.setActionCallback(object : IMqttActionListener {
+            // Paho reports the outcome of connect() only to the listener
+            // passed here, not to one set later on the returned token.
+            client.connect(connectOptions, null, object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken) {
                     Log.d(NAME, "connected, token: ${asyncActionToken}")
                     promise.resolve(null)
@@ -348,8 +347,8 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     /**
      * Disconnects from the MQTT broker.
      *
-     * Resolved once the client is closed, or right away when there is no
-     * connection to close.
+     * Resolved right away: the session is gone, and the client finishes
+     * disconnecting and closes in the background.
      */
     override fun disconnect(handle: String, promise: Promise) {
         // Remove the entry up-front so the cached socketFactory is released
@@ -361,58 +360,8 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             promise.resolve(null)
             return
         }
-        var failure: MqttException? = null
-        try {
-            val token = client.disconnect()
-            token.setActionCallback(object : IMqttActionListener {
-                override fun onSuccess(asyncActionToken: IMqttToken) {
-                    Log.d(NAME, "disconnected, token: ${asyncActionToken}")
-                    this@RNMqttClient.notifyEvent(handle, "disconnected", null)
-                }
-
-                override fun onFailure(
-                        asyncActionToken: IMqttToken,
-                        cause: Throwable?
-                ) {
-                    Log.e(
-                            NAME,
-                            "failed to disconnect, token: ${asyncActionToken}",
-                            cause
-                    )
-                }
-            })
-        } catch (e: MqttException) {
-            Log.e(NAME, "failed to disconnect", e)
-            val alreadyDisconnected = when (e.reasonCode.toShort()) {
-                MqttException.REASON_CODE_CLIENT_ALREADY_DISCONNECTED,
-                MqttException.REASON_CODE_CLIENT_NOT_CONNECTED -> true
-                else -> false
-            }
-            if (!alreadyDisconnected) {
-                failure = e
-            }
-        } catch (e: IllegalArgumentException) {
-            // The underlying ClientHandle is already torn down — already
-            // disconnected from the service's point of view. The session
-            // entry was already removed above, so no further cleanup is
-            // needed here.
-            Log.w(NAME, "failed to disconnect: invalid client handle")
-        } finally {
-            // close() must run synchronously (not from the async disconnect
-            // callback) so the process-wide MqttService drops its registration
-            // for (serverURI, clientId) before the next connect() constructs a
-            // fresh MqttAndroidClient with the same key. If we defer close()
-            // until onSuccess/onFailure fires and the callback never runs
-            // (service torn down, app backgrounded, promise abandoned), the
-            // stale service entry causes "IOException: Already connected" on
-            // reconnect.
-            closeClientQuietly(client)
-        }
-        if (failure != null) {
-            promise.reject("ERROR_DISCONNECT", failure)
-        } else {
-            promise.resolve(null)
-        }
+        releaseClient(client, handle)
+        promise.resolve(null)
     }
 
     /**
@@ -430,39 +379,37 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             val ints = payload.toArrayList().toArray(Array<Number>(payload.size()) { v -> v.toInt() })
             val bytes = ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
 
-            val token = client.publish(
+            client.publish(
                     topic,
                     bytes,
                     1, // qos
-                    false // not retained
-            )
-            token.setActionCallback(object : IMqttActionListener {
-                override fun onSuccess(asyncActionToken: IMqttToken) {
-                    Log.d(NAME, "published, token: ${asyncActionToken}")
-                    promise.resolve(null)
-                }
+                    false, // not retained
+                    null,
+                    object : IMqttActionListener {
+                        override fun onSuccess(asyncActionToken: IMqttToken) {
+                            Log.d(NAME, "published, token: ${asyncActionToken}")
+                            promise.resolve(null)
+                        }
 
-                override fun onFailure(
-                        asyncActionToken: IMqttToken,
-                        cause: Throwable?
-                ) {
-                    Log.e(
-                            NAME,
-                            "failed to publish, token: ${asyncActionToken}",
-                            cause
-                    )
-                    promise.reject("ERROR_PUBLISH", cause)
-                }
-            })
+                        override fun onFailure(
+                                asyncActionToken: IMqttToken,
+                                cause: Throwable?
+                        ) {
+                            Log.e(
+                                    NAME,
+                                    "failed to publish, token: ${asyncActionToken}",
+                                    cause
+                            )
+                            promise.reject("ERROR_PUBLISH", cause)
+                        }
+                    })
         } catch (e: MqttException) {
             Log.e(NAME, "failed to publish to ${topic}", e)
             promise.reject("ERROR_PUBLISH", e)
             return
         } catch (e: IllegalArgumentException) {
-            // The underlying ClientHandle has been torn down (e.g. after
-            // disconnect). Same as the null-client branch above.
-            Log.w(NAME, "failed to publish to $topic: invalid client handle")
-            promise.reject("NO_CONNECTION", Exception("no MQTT connection"))
+            Log.e(NAME, "failed to publish to $topic: invalid topic", e)
+            promise.reject("ERROR_PUBLISH", e)
             return
         }
     }
@@ -477,38 +424,35 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             return
         }
         try {
-            val token = client.subscribe(
+            client.subscribe(
                     topic,
-                    1 // qos
-            )
-            token.setActionCallback(object : IMqttActionListener {
-                override fun onSuccess(asyncActionToken: IMqttToken) {
-                    Log.d(NAME, "subscribed, token: ${asyncActionToken}")
-                    promise.resolve(null)
-                }
+                    1, // qos
+                    null,
+                    object : IMqttActionListener {
+                        override fun onSuccess(asyncActionToken: IMqttToken) {
+                            Log.d(NAME, "subscribed, token: ${asyncActionToken}")
+                            promise.resolve(null)
+                        }
 
-                override fun onFailure(
-                        asyncActionToken: IMqttToken,
-                        cause: Throwable?
-                ) {
-                    Log.e(
-                            NAME,
-                            "failed to subscribe, token: ${asyncActionToken}",
-                            cause
-                    )
-                    promise.reject("ERROR_SUBSCRIBE", cause)
-                }
-            })
+                        override fun onFailure(
+                                asyncActionToken: IMqttToken,
+                                cause: Throwable?
+                        ) {
+                            Log.e(
+                                    NAME,
+                                    "failed to subscribe, token: ${asyncActionToken}",
+                                    cause
+                            )
+                            promise.reject("ERROR_SUBSCRIBE", cause)
+                        }
+                    })
         } catch (e: MqttException) {
             Log.e(NAME, "failed to subscribe '$topic'", e)
             promise.reject("ERROR_SUBSCRIBE", e)
             return
         } catch (e: IllegalArgumentException) {
-            // The underlying ClientHandle has been torn down (e.g. after
-            // disconnect). Treat as "no MQTT connection" — same semantics
-            // as the null-client branch above.
-            Log.w(NAME, "failed to subscribe '$topic': invalid client handle")
-            promise.reject("NO_CONNECTION", Exception("no MQTT connection"))
+            Log.e(NAME, "failed to subscribe '$topic': invalid topic", e)
+            promise.reject("ERROR_SUBSCRIBE", e)
             return
         }
     }
@@ -525,10 +469,6 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         try {
             val isClientConnected = client.isConnected
             promise.resolve(isClientConnected)
-        } catch (e: IllegalArgumentException) {
-            // The underlying MQTT service has already torn down the
-            // ClientHandle (e.g. after disconnect). Treat as disconnected.
-            promise.resolve(false)
         } catch (e: Exception) {
             Log.e(NAME, "failed to check connection", e)
             promise.reject("ERROR_CHECK_CONNECTION", e)
@@ -550,16 +490,56 @@ class RNMqttClient(reactContext: ReactApplicationContext)
         this.notifyEvent(handle, "got-error", params)
     }
 
-    // Closes the underlying MqttAndroidClient, swallowing any failure.
-    // MqttAndroidClient talks to an in-process Android Service that keys
-    // clients by clientId; disconnect() only sends the DISCONNECT packet
-    // and does not unregister the client from the service. Without a
-    // subsequent close(), reconnecting with the same clientId fails with
-    // "IOException: Already connected".
-    private fun closeClientQuietly(client: MqttAndroidClient) {
+    // Disconnects and closes a client, so that it stops pinging and
+    // reconnecting. A connected client sends DISCONNECT and is closed from
+    // the completion callback: close() while Paho is still disconnecting
+    // only marks the close as pending, and the disconnect then skips its own
+    // shutdown, leaving the ping timer thread behind. `handle`, when given,
+    // gets the `disconnected` event once DISCONNECT has gone out. A client
+    // that is not connected (waiting between automatic reconnect attempts,
+    // or in the middle of one) is shut down and closed right away, which
+    // also ends its reconnect cycle.
+    private fun releaseClient(client: MqttAsyncClient, handle: String?) {
+        if (client.isConnected) {
+            try {
+                client.disconnect(null, object : IMqttActionListener {
+                    override fun onSuccess(asyncActionToken: IMqttToken) {
+                        Log.d(NAME, "disconnected, token: ${asyncActionToken}")
+                        closeQuietly(client)
+                        if (handle != null) {
+                            this@RNMqttClient.notifyEvent(handle, "disconnected", null)
+                        }
+                    }
+
+                    override fun onFailure(
+                            asyncActionToken: IMqttToken,
+                            cause: Throwable?
+                    ) {
+                        Log.e(
+                                NAME,
+                                "failed to disconnect, token: ${asyncActionToken}",
+                                cause
+                        )
+                        closeQuietly(client)
+                    }
+                })
+                return
+            } catch (e: MqttException) {
+                Log.w(NAME, "failed to disconnect, shutting the client down", e)
+            }
+        }
+        try {
+            client.disconnectForcibly(0, 0, false)
+        } catch (e: MqttException) {
+            Log.w(NAME, "failed to shut the MQTT client down", e)
+        }
+        closeQuietly(client)
+    }
+
+    private fun closeQuietly(client: MqttAsyncClient) {
         try {
             client.close()
-        } catch (e: Exception) {
+        } catch (e: MqttException) {
             Log.w(NAME, "failed to close MQTT client", e)
         }
     }
