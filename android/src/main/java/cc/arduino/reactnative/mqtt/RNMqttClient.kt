@@ -361,6 +361,15 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             promise.resolve(null)
             return
         }
+        // A client waiting between automatic reconnect attempts is not
+        // connected: MqttService then skips Paho's disconnect and forgets the
+        // connection, and Paho's reconnect timer brings it back on its own.
+        // close() reaches the Paho client only while the service still holds
+        // the connection, so such a client is closed first.
+        val closedFirst = !isConnectedQuietly(client)
+        if (closedFirst) {
+            closeClientQuietly(client)
+        }
         var failure: MqttException? = null
         try {
             val token = client.disconnect()
@@ -406,7 +415,9 @@ class RNMqttClient(reactContext: ReactApplicationContext)
             // (service torn down, app backgrounded, promise abandoned), the
             // stale service entry causes "IOException: Already connected" on
             // reconnect.
-            closeClientQuietly(client)
+            if (!closedFirst) {
+                closeClientQuietly(client)
+            }
         }
         if (failure != null) {
             promise.reject("ERROR_DISCONNECT", failure)
@@ -556,6 +567,15 @@ class RNMqttClient(reactContext: ReactApplicationContext)
     // and does not unregister the client from the service. Without a
     // subsequent close(), reconnecting with the same clientId fails with
     // "IOException: Already connected".
+    // MqttService throws IllegalArgumentException for a handle it has
+    // already forgotten.
+    private fun isConnectedQuietly(client: MqttAndroidClient): Boolean =
+        try {
+            client.isConnected
+        } catch (e: IllegalArgumentException) {
+            false
+        }
+
     private fun closeClientQuietly(client: MqttAndroidClient) {
         try {
             client.close()
