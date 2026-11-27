@@ -40,8 +40,6 @@ android {
 repositories {
   mavenCentral()
   google()
-  // hannesa2/paho.mqtt.android
-  maven { url 'https://jitpack.io' }
 }
 
 dependencies {
@@ -49,5 +47,5 @@ dependencies {
   implementation "org.jetbrains.kotlin:kotlin-stdlib:${getExtOrDefault('kotlinVersion')}"
 
   implementation 'androidx.legacy:legacy-support-v4:1.0.0'
-  implementation 'com.github.hannesa2:paho.mqtt.android:4.2.4'
+  implementation 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5'
 }
